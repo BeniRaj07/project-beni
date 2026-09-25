@@ -7,6 +7,7 @@ and a handful of pure-HTML dashboard widgets (reminders/tasks/weather cards) fro
 from __future__ import annotations
 
 import html
+import math
 
 import gradio as gr
 
@@ -108,7 +109,10 @@ code, .mono { font-family: 'Share Tech Mono', monospace !important; }
 /* ── dashboard grid ───────────────────────────────────── */
 #dashboard { position: relative; z-index: 1; flex: 1 1 auto; min-height: 0; display: grid;
   grid-template-columns: 240px 1fr 260px; gap: 14px; padding: 14px 16px 10px; }
-@media (max-width: 1100px) { #dashboard { grid-template-columns: 1fr; grid-template-rows: auto auto 1fr; } }
+@media (max-width: 1100px) { #dashboard { grid-template-columns: 1fr; grid-template-rows: auto auto auto 1fr; } }
+#right-rail { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+#right-rail > div:first-child { flex: 1 1 auto; min-height: 0; }
+#right-rail > div:last-child { flex: none; }
 
 .hud-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
   padding: 12px 13px; display: flex; flex-direction: column; min-height: 0;
@@ -126,11 +130,11 @@ code, .mono { font-family: 'Share Tech Mono', monospace !important; }
 .hud-list li small { display: block; font-family: 'Share Tech Mono', monospace; font-size: .68rem;
   color: var(--muted); margin-top: 1px; text-decoration: none; }
 .hud-list li.empty { border-color: transparent; color: var(--muted); font-style: italic; }
-.hud-progress { height: 6px; border-radius: 3px; background: rgba(47,230,200,.12); overflow: hidden; margin: 8px 0 2px; }
-.hud-progress i { display: block; height: 100%; background: linear-gradient(90deg, #0d9488, var(--accent));
-  box-shadow: 0 0 8px var(--accent); }
-.hud-progress-label { font-family: 'Share Tech Mono', monospace; font-size: .68rem; color: var(--muted);
-  display: flex; justify-content: space-between; }
+.hud-ring-row { display: flex; align-items: center; gap: 12px; margin-top: 10px; padding-top: 10px;
+  border-top: 1px solid var(--border); }
+.hud-ring { flex: none; filter: drop-shadow(0 0 5px rgba(47,230,200,.35)); }
+.hud-ring-text { font-family: 'Share Tech Mono', monospace; font-size: 13px; fill: var(--accent); }
+.hud-ring-label { font-size: .78rem; color: var(--muted); }
 
 .hud-table-wrap { flex: 1 1 auto; overflow-y: auto; min-height: 0; }
 .hud-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
@@ -144,12 +148,16 @@ code, .mono { font-family: 'Share Tech Mono', monospace !important; }
 .hud-table tr.done td:first-child { opacity: .55; text-decoration: line-through; }
 .hud-table-empty { color: var(--muted); font-style: italic; font-size: .84rem; padding: 4px 2px; margin: 0; }
 
-.weather-card { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
-.weather-card .wc-temp { font-family: 'Share Tech Mono', monospace; font-size: 1.9rem; color: var(--accent);
-  text-shadow: 0 0 12px rgba(47,230,200,.5); line-height: 1; }
-.weather-card .wc-temp small { font-size: 1rem; }
-.weather-card .wc-place { font-size: .78rem; color: var(--text); margin-top: 2px; }
-.weather-card .wc-cond { font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.weather-gauge { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 4px 0 2px; }
+.wg-ring-wrap { position: relative; width: 104px; height: 104px; }
+.wg-ring { width: 100%; height: 100%; filter: drop-shadow(0 0 6px rgba(47,230,200,.35)); }
+.wg-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.wg-icon { font-size: 1.3rem; line-height: 1; margin-bottom: 3px; }
+.wg-temp { font-family: 'Share Tech Mono', monospace; font-size: 1.5rem; color: var(--accent);
+  text-shadow: 0 0 10px rgba(47,230,200,.5); line-height: 1; }
+.wg-temp small { font-size: .8rem; }
+.wg-place { font-size: .82rem; color: var(--text); margin-top: 10px; font-weight: 600; }
+.wg-cond { font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-top: 2px; }
 
 /* ── center screen ────────────────────────────────────── */
 #center-screen { position: relative; background: radial-gradient(120% 100% at 50% 0%, rgba(47,230,200,.07), transparent 60%), var(--surface);
@@ -503,12 +511,46 @@ def task_table(rows: list[tuple[str, str, str]], empty: str) -> str:
            f'<thead><tr><th>Task</th><th>Due</th></tr></thead><tbody>{body}</tbody></table></div>')
 
 
-def progress_bar(label: str, percent: int) -> str:
-    percent = max(0, min(100, percent))
-    return (f'<div class="hud-progress"><i style="width:{percent}%"></i></div>'
-           f'<div class="hud-progress-label"><span>{html.escape(label)}</span><span>{percent}%</span></div>')
+def _ring(percent: float, r: float) -> tuple[float, float]:
+    """Shared math for an SVG ring gauge: (circumference, dash-offset) for `percent` (0-100) filled."""
+    percent = max(0.0, min(100.0, percent))
+    circumference = 2 * math.pi * r
+    return circumference, circumference * (1 - percent / 100)
 
 
-def weather_card(temp: str, condition: str, place: str, icon: str = "🌤️") -> str:
-    return (f'<div class="weather-card"><div class="wc-temp">{icon} {temp}<small>°C</small></div>'
-           f'<div class="wc-place">{html.escape(place)}</div><div class="wc-cond">{html.escape(condition)}</div></div>')
+def progress_ring(label: str, percent: int) -> str:
+    r = 26
+    circumference, offset = _ring(percent, r)
+    return f"""
+<div class="hud-ring-row">
+  <svg class="hud-ring" viewBox="0 0 64 64" width="52" height="52">
+    <circle cx="32" cy="32" r="{r}" fill="none" stroke="var(--border)" stroke-width="5"/>
+    <circle cx="32" cy="32" r="{r}" fill="none" stroke="var(--accent)" stroke-width="5" stroke-linecap="round"
+            stroke-dasharray="{circumference:.1f}" stroke-dashoffset="{offset:.1f}" transform="rotate(-90 32 32)"/>
+    <text x="32" y="37" text-anchor="middle" class="hud-ring-text">{percent}%</text>
+  </svg>
+  <span class="hud-ring-label">{html.escape(label)}</span>
+</div>"""
+
+
+def weather_gauge(temp: str, condition: str, place: str, icon: str = "🌤️") -> str:
+    """A circular dial mapping temp onto a -10..40°C range (clamped); '--'/non-numeric temp -> empty ring."""
+    try:
+        percent = (float(temp) + 10) / 50 * 100
+    except ValueError:
+        percent = 0.0
+    r = 42
+    circumference, offset = _ring(percent, r)
+    return f"""
+<div class="weather-gauge">
+  <div class="wg-ring-wrap">
+    <svg viewBox="0 0 100 100" class="wg-ring">
+      <circle cx="50" cy="50" r="{r}" fill="none" stroke="var(--border)" stroke-width="6"/>
+      <circle cx="50" cy="50" r="{r}" fill="none" stroke="var(--accent)" stroke-width="6" stroke-linecap="round"
+              stroke-dasharray="{circumference:.1f}" stroke-dashoffset="{offset:.1f}" transform="rotate(-90 50 50)"/>
+    </svg>
+    <div class="wg-center"><span class="wg-icon">{icon}</span><span class="wg-temp">{html.escape(temp)}<small>°C</small></span></div>
+  </div>
+  <div class="wg-place">{html.escape(place)}</div>
+  <div class="wg-cond">{html.escape(condition)}</div>
+</div>"""

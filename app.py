@@ -223,7 +223,7 @@ def _task_due_label(t, today: date, now_local: datetime, month: str) -> str:
 
 
 def dashboard_panels(state: ConversationState | None):
-    """Read-only HTML for the two side panels. Called on load, every DASHBOARD_POLL_SECONDS,
+    """Read-only HTML for the three side panels. Called on load, every DASHBOARD_POLL_SECONDS,
     and after any turn or reminder/task-affecting action so they stay live."""
     today = tasks.today_local()
     now_local = datetime.now(settings.tz)
@@ -239,19 +239,20 @@ def dashboard_panels(state: ConversationState | None):
     task_rows = [(t.title, _task_due_label(t, today, now_local, month),
                  "done" if t.status == "completed" else ("due" if t.due_date and t.due_date <= today.isoformat() else ""))
                 for t in items]
-    tasks_body = theme.task_table(task_rows, "No tasks this month") + theme.progress_bar(fmt_month(month), prog.percent)
+    tasks_body = theme.task_table(task_rows, "No tasks this month") + theme.progress_ring(fmt_month(month), prog.percent)
+    tasks_html = theme.panel("Tasks", tasks_body, f"{prog.completed}/{prog.total}")
 
     city = (state.last_city if state and state.last_city else settings.default_city)
     report, error = _cached_weather(city)
     if report is not None:
         icon = "🌧️" if report.raining_now else "🌤️"
-        weather_html = theme.weather_card(f"{report.temperature:.0f}", weather.describe_code(report.weather_code),
-                                          report.location.name, icon)
+        weather_body = theme.weather_gauge(f"{report.temperature:.0f}", weather.describe_code(report.weather_code),
+                                           report.location.name, icon)
     else:
-        weather_html = theme.weather_card("--", error or "unavailable", city, "⚠️")
-    tasks_html = theme.panel("Tasks", tasks_body + weather_html, f"{prog.completed}/{prog.total}")
+        weather_body = theme.weather_gauge("--", error or "unavailable", city, "⚠️")
+    weather_html = theme.panel("Weather", weather_body)
 
-    return reminders_html, tasks_html
+    return reminders_html, tasks_html, weather_html
 
 
 # ── layout ───────────────────────────────────────────────────────────────────
@@ -280,6 +281,7 @@ def build_ui() -> gr.Blocks:
         mic_upload = gr.File(elem_id="mic-upload", render=False)
         reminders_panel = gr.HTML(render=False)
         tasks_panel = gr.HTML(render=False)
+        weather_panel = gr.HTML(render=False)
 
         with gr.Column(elem_id="app-root"):
             gr.HTML(theme.topbar_html())
@@ -347,11 +349,13 @@ def build_ui() -> gr.Blocks:
                             send_btn.render()
                     mic_upload.render()
 
-                tasks_panel.render()
+                with gr.Column(elem_id="right-rail"):
+                    tasks_panel.render()
+                    weather_panel.render()
 
         # ── events ───────────────────────────────────────────────────────
         turn_outputs = [chatbot, active_id, convo_state, text_in, status_line, audio_out, conv_list]
-        dashboard_outputs = [reminders_panel, tasks_panel]
+        dashboard_outputs = [reminders_panel, tasks_panel, weather_panel]
 
         text_in.submit(text_turn, [text_in, chatbot, active_id, convo_state, autoplay_cb], turn_outputs
                        ).then(dashboard_panels, convo_state, dashboard_outputs)
