@@ -1,0 +1,16 @@
+# Secrets
+.env
+
+# Runtime data
+data/
+logs/
+*.json.bak
+*.json.lock
+output.wav
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/

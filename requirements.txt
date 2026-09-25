@@ -1,0 +1,19 @@
+# Web UI
+gradio>=6.0,<7
+
+# AI services
+groq>=0.11                 # Whisper speech-to-text + LLM (intent, summaries)
+google-genai>=1.0          # Gemini text-to-speech
+edge-tts>=7.0               # Nepali-capable TTS fallback (ne-NP neural voices)
+miniaudio>=1.59            # decodes edge-tts MP3 into WAV (no ffmpeg needed)
+
+# Data, validation, storage, scheduling
+pydantic>=2.5
+filelock>=3.13             # cross-process locking for the JSON data files
+apscheduler>=3.10,<4       # APScheduler 4 has a different API
+requests>=2.31
+python-dotenv>=1.0
+tzdata>=2024.1             # timezone database (needed on Windows for zoneinfo)
+
+# Tests
+pytest>=8.0
