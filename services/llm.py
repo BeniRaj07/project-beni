@@ -62,11 +62,14 @@ def _split_system(messages: list[dict[str, str]]) -> tuple[str, list[dict[str, s
     return system, rest
 
 
-def chat_text(messages: list[dict[str, str]], *, temperature: float = 0.4, max_tokens: int = 1500) -> str:
+def chat_text(messages: list[dict[str, str]], *, max_tokens: int = 1500) -> str:
+    # No `temperature` param: the installed anthropic SDK rejects it as an unexpected kwarg on
+    # messages.create() (client-side TypeError, not a server 400) - Claude's own default sampling
+    # is used instead.
     system, msgs = _split_system(messages)
     try:
         resp = get_anthropic_client().messages.create(
-            model=settings.claude_model, max_tokens=max_tokens, temperature=temperature,
+            model=settings.claude_model, max_tokens=max_tokens,
             system=system, messages=msgs)
     except ServiceError:
         raise
@@ -105,7 +108,7 @@ def chat_json(messages: list[dict[str, str]], *, max_tokens: int = 1500) -> dict
     while attempts < 2:
         try:
             resp = get_anthropic_client().messages.create(
-                model=settings.claude_model, max_tokens=max_tokens, temperature=0,
+                model=settings.claude_model, max_tokens=max_tokens,
                 system=system, messages=msgs)
         except ServiceError:
             raise
