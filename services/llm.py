@@ -37,7 +37,11 @@ def _translate_error(e: Exception) -> ServiceError:
 @lru_cache(maxsize=1)
 def get_anthropic_client():
     from anthropic import Anthropic  # imported lazily so tests don't need network access or keys
-    return Anthropic(api_key=require_key(settings.anthropic_api_key, "ANTHROPIC_API_KEY"), timeout=15, max_retries=1)
+    kwargs: dict[str, Any] = {}
+    if settings.anthropic_workspace_id:
+        kwargs["default_headers"] = {"anthropic-workspace-id": settings.anthropic_workspace_id}
+    return Anthropic(api_key=require_key(settings.anthropic_api_key, "ANTHROPIC_API_KEY"),
+                     timeout=15, max_retries=1, **kwargs)
 
 
 def _is_claude_error(e: Exception) -> bool:
