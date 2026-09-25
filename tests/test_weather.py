@@ -75,6 +75,16 @@ def test_unknown_city(monkeypatch):
     assert "couldn't find" in reply.text
 
 
+def test_geocoding_prefers_nepal_match_over_top_ranked_foreign_namesake(monkeypatch):
+    multi = {"results": [
+        {"name": "Birganj", "country": "France", "admin1": "", "latitude": 48.0, "longitude": 2.0},
+        {"name": "Birgunj", "country": "Nepal", "admin1": "Madhesh Province", "latitude": 27.0, "longitude": 84.87},
+    ]}
+    patch_api(monkeypatch, geocode=multi, forecast=forecast_payload())
+    rep = weather.get_weather_report("Birgunj")
+    assert rep.location.country == "Nepal" and rep.location.name == "Birgunj"
+
+
 def test_malformed_weather_response_raises_service_error(monkeypatch):
     patch_api(monkeypatch, forecast={"current": {"time": "2026-09-24T14:00"}})   # missing fields
     with pytest.raises(ServiceError):

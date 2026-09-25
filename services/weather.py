@@ -102,11 +102,14 @@ def geocode(city: str) -> Location | None:
 
     def fetch():
         data = get_json("Open-Meteo geocoding", GEOCODE_URL,
-                        params={"name": city, "count": 1, "language": "en", "format": "json"})
+                        params={"name": city, "count": 5, "language": "en", "format": "json"})
         results = data.get("results") if isinstance(data, dict) else None
         if not results:
             return None
-        r = results[0]
+        # This is a Nepal-focused assistant, so a bare city name ("Itahari", "Birgunj") should
+        # resolve there even if Open-Meteo's population-ranked top hit is a same-named place
+        # elsewhere; fall back to its top result when no Nepal match is among the candidates.
+        r = next((x for x in results if x.get("country") == "Nepal"), results[0])
         try:
             return Location(name=r["name"], country=r.get("country", ""), admin1=r.get("admin1", ""),
                             latitude=float(r["latitude"]), longitude=float(r["longitude"]))
