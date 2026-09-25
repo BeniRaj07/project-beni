@@ -42,7 +42,7 @@ def main() -> int:
     out.mkdir(parents=True, exist_ok=True)
     print("API connectivity")
     results = [
-        check("Groq LLM", lambda: chat_text([{"role": "user", "content": "Reply with the single word OK."}], max_tokens=300)),
+        check("Claude LLM", lambda: chat_text([{"role": "user", "content": "Reply with the single word OK."}], max_tokens=300)),
         check("Open-Meteo", lambda: f"{weather.get_weather_report('Kathmandu').temperature}°C in Kathmandu"),
         check("Football-Data.org", lambda: f"{len(football.get_standings('PL')[0][1])} teams in the PL table"),
         check("NewsAPI", lambda: f"{len(news.fetch_football_articles())} football articles"),

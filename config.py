@@ -29,12 +29,15 @@ class Settings:
     # API keys
     gemini_api_key: str = field(default_factory=lambda: _env("GEMINI_API_KEY"))
     groq_api_key: str = field(default_factory=lambda: _env("GROQ_API_KEY"))
+    anthropic_api_key: str = field(default_factory=lambda: _env("ANTHROPIC_API_KEY"))
     news_api_key: str = field(default_factory=lambda: _env("NEWS_API_KEY"))
     football_data_key: str = field(default_factory=lambda: _env("FOOTBALL_DATA_KEY"))
     elevenlabs_api_key: str = field(default_factory=lambda: _env("ELEVENLABS_API_KEY"))
 
     # Models
-    groq_llm_model: str = field(default_factory=lambda: _env("GROQ_LLM_MODEL", "openai/gpt-oss-20b"))
+    # Claude does the "thinking" (intent classification, small talk, news summaries). Groq is kept
+    # only for Whisper speech-to-text - Anthropic has no audio transcription API.
+    claude_model: str = field(default_factory=lambda: _env("CLAUDE_MODEL", "claude-haiku-4-5"))
     groq_stt_model: str = field(default_factory=lambda: _env("GROQ_STT_MODEL", "whisper-large-v3"))
     gemini_tts_model: str = field(default_factory=lambda: _env("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts"))
     gemini_voice: str = field(default_factory=lambda: _env("GEMINI_VOICE", "Kore"))
