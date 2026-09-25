@@ -1,8 +1,9 @@
 """A sci-fi "circuit-board" HUD look: dark teal-on-black theme, CSS, and the small amount of
-client-side JavaScript the UI genuinely needs (a push-to-talk mic recorder, a live clock, a
-dark/light toggle, and an off-canvas conversation drawer). Sending, replying, playing audio and the
-conversation list are plain Gradio, driven from Python in app.py; this module only builds the look
-and a handful of pure-HTML dashboard widgets (reminders/tasks/weather cards) from data app.py hands it.
+client-side JavaScript the UI genuinely needs (a hands-free conversation-mode mic recorder with
+silence detection and barge-in, a live clock, a dark/light toggle, and an off-canvas conversation
+drawer). Sending, replying, playing audio and the conversation list are plain Gradio, driven from
+Python in app.py; this module only builds the look and a handful of pure-HTML dashboard widgets
+(reminders/tasks/weather cards) from data app.py hands it.
 """
 from __future__ import annotations
 
@@ -193,10 +194,21 @@ code, .mono { font-family: 'Share Tech Mono', monospace !important; }
 .mic-btn::after { content: ""; position: absolute; inset: -5px; border-radius: 50%; border: 1px solid var(--border);
   opacity: .6; }
 .mic-btn:hover { background: rgba(47,230,200,.14) !important; }
+.mic-btn.conv-on { background: rgba(47,230,200,.16) !important; border-color: var(--accent) !important;
+  box-shadow: 0 0 12px rgba(47,230,200,.5); }
 .mic-btn.recording { background: rgba(239,68,68,.15) !important; border-color: #ef4444 !important;
   color: #ef4444 !important; animation: mic-pulse 1.1s ease-in-out infinite; }
 .mic-btn.recording::after { border-color: rgba(239,68,68,.5); }
 @keyframes mic-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,.45) } 50% { box-shadow: 0 0 0 9px rgba(239,68,68,0) } }
+/* Positioned absolutely (not inline) so it never fights Gradio's own flex-basis math for the
+   composer row's other children — it just floats above the mic button when shown. */
+.mic-btn-group { position: relative; flex: none; }
+#end-conv-btn { position: absolute; left: 50%; bottom: 54px; transform: translateX(-50%);
+  min-width: 68px; height: 28px; border-radius: 14px; white-space: nowrap;
+  background: rgba(10,26,24,.92); border: 1px solid rgba(239,68,68,.4);
+  color: #fca5a5; font-size: .74rem; padding: 0 10px; cursor: pointer;
+  font-family: 'Share Tech Mono', monospace; box-shadow: 0 4px 14px rgba(0,0,0,.4); }
+#end-conv-btn:hover { background: rgba(239,68,68,.18); }
 #rec-indicator { display: none; align-items: center; gap: 8px; max-width: 720px; margin: 0 auto 6px;
   padding: 0 20px; font-size: .82rem; color: #ef4444; font-weight: 600; font-family: 'Share Tech Mono', monospace; }
 #rec-indicator.on { display: flex; }
@@ -321,12 +333,19 @@ JS = r"""
   setInterval(tickClock, 1000);
   document.addEventListener("DOMContentLoaded", tickClock);
 
-  // ── push-to-talk mic recorder ──
-  // Tap once: start recording (mic button turns red and pulses, a bar-graph level meter animates).
-  // Tap again: stop, and the clip is handed to a hidden Gradio File input, which triggers the
-  // normal Python turn (transcribe -> respond -> reply -> optional speech), exactly like a typed message.
+  // ── hands-free conversation mode (ChatGPT/Siri-style) ──
+  // Tap once: Awaaz starts listening (mic button turns red, a level meter animates) and stays in a
+  // hands-free loop — it auto-detects when you stop talking (no second tap needed), sends, speaks
+  // the reply, then automatically starts listening again for your next turn. Talking while it's
+  // speaking always barges in. Tap "End conversation" (shown only while the loop is running) to stop.
+  const SPEECH_RMS = 0.02;          // level.above this counts as "you're talking"
+  const SILENCE_STOP_MS = 1300;     // ...and this much silence after that means "you're done"
+  const MAX_RECORD_MS = 30000;      // safety cap so a stuck mic can't record forever
+  const TURN_TIMEOUT_MS = 25000;    // give up waiting for a reply and just listen again
+
   const REC = { active: false, stream: null, rec: null, chunks: [], mime: "", ctx: null, analyser: null,
-                timer: null, seconds: 0 };
+               timer: null, seconds: 0, hasSpeech: false, silenceStart: 0, startedAt: 0 };
+  const CONV = { active: false, watchTimer: null, watchObserver: null };
 
   function pickMime() {
     if (!window.MediaRecorder) return "";
@@ -340,19 +359,31 @@ JS = r"""
       bar.style.height = h + "px";
     });
   }
+  function setStatus(text) { const el = document.getElementById("mic-status"); if (el) el.textContent = text || ""; }
+  function updateConvUI() {
+    document.querySelectorAll(".mic-btn").forEach(function (b) { b.classList.toggle("conv-on", CONV.active); });
+    const end = document.getElementById("end-conv-btn"); if (end) end.style.display = CONV.active ? "" : "none";
+  }
+  function tickTimer() {
+    REC.seconds += 1;
+    const m = String(Math.floor(REC.seconds / 60)).padStart(2, "0"), s = String(REC.seconds % 60).padStart(2, "0");
+    setStatus("Listening " + m + ":" + s + " — pause to send, or tap to send now");
+  }
   function levelLoop() {
     if (!REC.active || !REC.analyser) return;
     const buf = new Float32Array(REC.analyser.fftSize);
     REC.analyser.getFloatTimeDomainData(buf);
     let sum = 0; for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
-    setBars(Math.sqrt(sum / buf.length));
+    const level = Math.sqrt(sum / buf.length);
+    setBars(level);
+    const now = Date.now();
+    if (level > SPEECH_RMS) { REC.hasSpeech = true; REC.silenceStart = 0; }
+    else if (REC.hasSpeech) {
+      if (!REC.silenceStart) REC.silenceStart = now;
+      else if (now - REC.silenceStart > SILENCE_STOP_MS) { stopRecording(true); return; }
+    }
+    if (now - REC.startedAt > MAX_RECORD_MS) { stopRecording(true); return; }
     requestAnimationFrame(levelLoop);
-  }
-  function setStatus(text) { const el = document.getElementById("mic-status"); if (el) el.textContent = text || ""; }
-  function tickTimer() {
-    REC.seconds += 1;
-    const m = String(Math.floor(REC.seconds / 60)).padStart(2, "0"), s = String(REC.seconds % 60).padStart(2, "0");
-    setStatus("Recording " + m + ":" + s + " — tap the mic again to send");
   }
 
   // ── barge-in: talking to Awaaz always interrupts whatever it's currently saying ──
@@ -363,11 +394,13 @@ JS = r"""
   }
 
   async function startRecording() {
+    clearConvWatch();
     stopSpeaking();
     try {
       REC.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
     } catch (e) {
       setStatus("Microphone blocked — allow microphone access for this site, then try again.");
+      CONV.active = false; updateConvUI();
       return;
     }
     REC.ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -379,10 +412,10 @@ JS = r"""
     catch (e) { REC.rec = new MediaRecorder(REC.stream); }
     REC.rec.ondataavailable = function (e) { if (e.data && e.data.size) REC.chunks.push(e.data); };
     REC.rec.start();
-    REC.active = true; REC.seconds = 0;
+    REC.active = true; REC.seconds = 0; REC.hasSpeech = false; REC.silenceStart = 0; REC.startedAt = Date.now();
     document.querySelectorAll(".mic-btn").forEach(function (b) { b.classList.add("recording"); });
     const ind = document.getElementById("rec-indicator"); if (ind) ind.classList.add("on");
-    setStatus("Recording 00:00 — tap the mic again to send");
+    setStatus("Listening 00:00 — pause to send, or tap to send now");
     REC.timer = setInterval(tickTimer, 1000);
     levelLoop();
   }
@@ -393,7 +426,7 @@ JS = r"""
     return null;
   }
 
-  async function stopRecording() {
+  async function stopRecording(send) {
     REC.active = false;
     clearInterval(REC.timer);
     document.querySelectorAll(".mic-btn").forEach(function (b) { b.classList.remove("recording"); });
@@ -401,8 +434,13 @@ JS = r"""
     if (!REC.rec) return;
     await new Promise(function (resolve) { REC.rec.onstop = resolve; REC.rec.stop(); });
     if (REC.stream) REC.stream.getTracks().forEach(function (t) { t.stop(); });
+    if (send === false) { setStatus(""); return; }
     const blob = new Blob(REC.chunks, { type: REC.rec.mimeType || REC.mime });
-    if (blob.size < 800) { setStatus("That was too short — try again."); return; }
+    if (blob.size < 800) {
+      if (CONV.active) { setStatus("Didn't catch that — listening again…"); setTimeout(function () { if (CONV.active) startRecording(); }, 500); }
+      else setStatus("That was too short — try again.");
+      return;
+    }
     setStatus("Sending…");
     const ext = (blob.type || "").includes("mp4") ? "m4a" : (blob.type || "").includes("ogg") ? "ogg" : "webm";
     const file = new File([blob], "voice_" + Date.now() + "." + ext, { type: blob.type });
@@ -410,10 +448,54 @@ JS = r"""
     if (!input) { setStatus("Could not reach the app — please reload the page."); return; }
     const dt = new DataTransfer(); dt.items.add(file); input.files = dt.files;
     input.dispatchEvent(new Event("change", { bubbles: true }));
+    if (CONV.active) armConvWatch();
   }
 
+  // Once a hands-free turn is sent: wait for the spoken reply to actually finish playing before
+  // listening again (so Awaaz doesn't hear itself); if no reply clip shows up at all (TTS failed,
+  // or nothing needed saying), give up after TURN_TIMEOUT_MS and listen again anyway.
+  function clearConvWatch() {
+    if (CONV.watchTimer) { clearTimeout(CONV.watchTimer); CONV.watchTimer = null; }
+    if (CONV.watchObserver) { CONV.watchObserver.disconnect(); CONV.watchObserver = null; }
+  }
+  function armConvWatch() {
+    clearConvWatch();
+    const row = document.getElementById("audio-row");
+    const priorSrc = (row && row.querySelector("audio")) ? row.querySelector("audio").currentSrc : "";
+    let settled = false;
+    function resume() {
+      if (settled || !CONV.active) return;
+      settled = true;
+      clearConvWatch();
+      startRecording();
+    }
+    if (row) {
+      CONV.watchObserver = new MutationObserver(function () {
+        const a = row.querySelector("audio");
+        if (a && a.currentSrc && a.currentSrc !== priorSrc) {
+          CONV.watchObserver.disconnect();
+          a.addEventListener("ended", resume, { once: true });
+        }
+      });
+      CONV.watchObserver.observe(row, { childList: true, subtree: true, attributes: true, attributeFilter: ["src"] });
+    }
+    CONV.watchTimer = setTimeout(resume, TURN_TIMEOUT_MS);
+  }
+
+  function endConversation() {
+    CONV.active = false;
+    clearConvWatch();
+    if (REC.active) stopRecording(false);
+    stopSpeaking();
+    setStatus("");
+    updateConvUI();
+  }
+  window.awaazEndConversation = endConversation;
+
   window.awaazMicTap = function () {
-    if (REC.active) stopRecording(); else startRecording();
+    if (REC.active) { stopRecording(true); return; }   // done talking early — send now
+    CONV.active = true; updateConvUI();                 // (barge-in-while-speaking also lands here)
+    startRecording();
   };
 })();
 """

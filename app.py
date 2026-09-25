@@ -344,7 +344,10 @@ def build_ui() -> gr.Blocks:
                     with gr.Column(elem_id="composer-wrap"):
                         gr.HTML(theme.reticle_html())
                         with gr.Row(elem_id="composer"):
-                            gr.HTML('<button class="mic-btn" onclick="awaazMicTap()" title="Tap to speak">🎤</button>')
+                            gr.HTML('<div class="mic-btn-group">'
+                                    '<button class="mic-btn" onclick="awaazMicTap()" title="Tap to talk hands-free">🎤</button>'
+                                    '<button id="end-conv-btn" onclick="awaazEndConversation()" '
+                                    'style="display:none" title="End the conversation">✕ End</button></div>')
                             text_in.render()
                             send_btn.render()
                     mic_upload.render()
