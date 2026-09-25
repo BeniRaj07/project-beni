@@ -2,7 +2,7 @@
 
 **A ChatGPT-style, voice-first assistant for everyday task management, weather and football news,
 in Nepali (नेपाली) and English.**
-University data-science project · Python 3.11+ · Gradio · Groq Whisper + Claude LLM · Gemini/ElevenLabs TTS
+University data-science project · Python 3.11+ · Gradio · Groq Whisper + LLM · Gemini/ElevenLabs TTS
 · JSON data store · APScheduler
 
 The assistant has a deliberately **limited scope**: greetings and small talk, personal reminders,
@@ -33,7 +33,7 @@ debugging information is ever shown — only the final conversational answer.
 
 | Capability | What it does | Data source |
 |---|---|---|
-| 💬🎙️ Conversation | Type or speak, in English, Devanagari Nepali or Romanized Nepali; the reply is shown as text and (optionally) spoken back; follow-up questions ("What time?" → "8 PM") keep context; every conversation is saved and searchable | Groq Whisper + Claude |
+| 💬🎙️ Conversation | Type or speak, in English, Devanagari Nepali or Romanized Nepali; the reply is shown as text and (optionally) spoken back; follow-up questions ("What time?" → "8 PM") keep context; every conversation is saved and searchable | Groq Whisper + LLM |
 | ⏰ Reminders | Created, listed, edited and deleted entirely by voice/text — "remind me to call mum tomorrow at 8", "what reminders do I have today?", "delete my assignment reminder"; one-time, daily, weekly or monthly; due reminders appear as a chat message (and are spoken, if enabled) while the app is running | Local JSON + APScheduler |
 | 📝 Monthly tasks | Add, list, complete and delete by voice/text — "add finishing my report to this month's tasks", "what are my pending tasks?", "mark my report as completed"; recurring monthly tasks never duplicate; a task can carry a linked reminder | Local JSON |
 | 🌤️ Weather | Current conditions kept clearly separate from forecasts; the location's own timezone; remembers the last city you asked about | Open-Meteo |
@@ -76,7 +76,7 @@ table (completed and translated), `LEAGUE_CODES` (extended with Nepali names), t
                               │ speech_to_text        │ text_turn()
                               ▼ (Whisper)              ▼
                       assistant/conversation.respond()
-                              │  ① intent_classifier (Claude → JSON → Pydantic)
+                              │  ① intent_classifier (Groq LLM → JSON → Pydantic)
                               │  ② merge follow-up answers   ③ dispatch
                               ▼
                       assistant/handlers.py ──► services/{weather, football, news, reminders, tasks}
@@ -106,7 +106,7 @@ voice-assistant/
 │   └── briefing.py               # "what's my update?" daily-briefing intent
 ├── services/
 │   ├── http.py                   # timeouts, retries, friendly errors, cache, rate limiter
-│   ├── llm.py                    # Claude chat wrapper (JSON retry) + the Groq client for Whisper
+│   ├── llm.py                    # Groq chat wrapper (JSON mode + retry)
 │   ├── speech_to_text.py         # Groq Whisper
 │   ├── text_to_speech.py         # Gemini/ElevenLabs + edge-tts fallback, unique WAV files
 │   ├── weather.py  football.py  news.py
@@ -174,8 +174,7 @@ Fill in `.env`:
 
 | Key | Where to get it | Free tier notes |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | console.anthropic.com/settings/keys | powers intent classification, small talk and news summaries (`CLAUDE_MODEL`, default `claude-haiku-4-5`) |
-| `GROQ_API_KEY` | console.groq.com/keys | speech-to-text (Whisper) only; generous, rate-limited per minute |
+| `GROQ_API_KEY` | console.groq.com/keys | generous; rate-limited per minute |
 | `GEMINI_API_KEY` | aistudio.google.com/apikey | primary TTS engine by default; preview model has a daily quota |
 | `NEWS_API_KEY` | newsapi.org/register | developer plan: localhost only, articles delayed ~24 h |
 | `FOOTBALL_DATA_KEY` | football-data.org/client/register | 10 requests/min, the six supported competitions included; scores may be delayed |

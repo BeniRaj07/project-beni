@@ -270,7 +270,7 @@ def generate_greeting(text: str, language: str, history: list[dict] | None = Non
         *[{"role": m["role"], "content": str(m["content"])[:300]} for m in (history or [])[-4:]],
         {"role": "user", "content": text},
     ]
-    return chat_text(messages, max_tokens=800)
+    return chat_text(messages, temperature=0.7, max_tokens=800)
 
 
 def summarize_news(articles: list[Article], language: str, topic: str | None = None) -> str:
@@ -286,7 +286,7 @@ def summarize_news(articles: list[Article], language: str, topic: str | None = N
             "No markdown, no URLs, no lists.")},
         {"role": "user", "content": f"Articles:\n<<<\n{article_block}\n>>>"},
     ]
-    return chat_text(messages, max_tokens=1500)
+    return chat_text(messages, temperature=0.3, max_tokens=1500)
 
 
 def format_sources(articles: list[Article], language: str) -> str:

@@ -2,8 +2,7 @@
 gradio>=6.0,<7
 
 # AI services
-groq>=0.11                 # Whisper speech-to-text
-anthropic>=0.40             # Claude LLM (intent classification, small talk, summaries)
+groq>=0.11                 # Whisper speech-to-text + LLM (intent, summaries)
 google-genai>=1.0          # Gemini text-to-speech
 edge-tts>=7.0               # Nepali-capable TTS fallback (ne-NP neural voices)
 miniaudio>=1.59            # decodes edge-tts MP3 into WAV (no ffmpeg needed)

@@ -88,18 +88,15 @@ def test_parse_json_object_tolerates_fences_and_chatter():
         llm.parse_json_object("I cannot help with that")
 
 
-def _text_response(text: str):
-    return SimpleNamespace(content=[SimpleNamespace(type="text", text=text)])
-
-
 def test_malformed_llm_output_retries_then_raises_service_error(monkeypatch):
     replies = iter(["not json", "still not json"])
 
-    class FakeMessages:
+    class FakeCompletions:
         def create(self, **kw):
-            return _text_response(next(replies))
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=next(replies)))])
 
-    monkeypatch.setattr(llm, "get_anthropic_client", lambda: SimpleNamespace(messages=FakeMessages()))
+    fake_client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+    monkeypatch.setattr(llm, "get_groq_client", lambda: fake_client)
     with pytest.raises(ServiceError):
         llm.chat_json([{"role": "user", "content": "hi"}])
 
@@ -107,34 +104,46 @@ def test_malformed_llm_output_retries_then_raises_service_error(monkeypatch):
 def test_malformed_first_reply_recovers_on_retry(monkeypatch):
     replies = iter(["oops", '{"intent": "weather", "city": "Pokhara"}'])
 
-    class FakeMessages:
+    class FakeCompletions:
         def create(self, **kw):
-            return _text_response(next(replies))
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=next(replies)))])
 
-    monkeypatch.setattr(llm, "get_anthropic_client", lambda: SimpleNamespace(messages=FakeMessages()))
+    monkeypatch.setattr(llm, "get_groq_client",
+                        lambda: SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions())))
     assert llm.chat_json([{"role": "user", "content": "x"}])["city"] == "Pokhara"
 
 
 def _fake_client(monkeypatch, handler):
     calls = []
 
-    class FakeMessages:
+    class FakeCompletions:
         def create(self, **kw):
             calls.append(kw)
             return handler(kw)
 
-    monkeypatch.setattr(llm, "get_anthropic_client", lambda: SimpleNamespace(messages=FakeMessages()))
+    monkeypatch.setattr(llm, "get_groq_client", lambda: SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions())))
     return calls
 
 
-def test_system_message_is_split_out_for_claude(monkeypatch):
-    calls = _fake_client(monkeypatch, lambda kw: _text_response('{"intent": "greeting"}'))
-    llm.chat_json([{"role": "system", "content": "You classify intents."}, {"role": "user", "content": "hi"}])
-    assert calls[0]["system"].startswith("You classify intents.")
-    assert calls[0]["messages"] == [{"role": "user", "content": "hi"}]
+def test_json_mode_rejected_falls_back_to_plain_request(monkeypatch):
+    import groq
+    import httpx
+
+    def handler(kw):
+        if "response_format" in kw:
+            raise groq.BadRequestError("response_format not supported",
+                                       response=httpx.Response(400, request=httpx.Request("POST", "http://x")), body=None)
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"intent": "greeting"}'))])
+
+    calls = _fake_client(monkeypatch, handler)
+    assert llm.chat_json([{"role": "user", "content": "hi"}]) == {"intent": "greeting"}
+    assert "response_format" in calls[0] and "response_format" not in calls[1]
 
 
-def test_empty_text_is_an_error(monkeypatch):
-    _fake_client(monkeypatch, lambda kw: _text_response(""))
+def test_reasoning_model_gets_low_effort_and_empty_text_is_an_error(monkeypatch):
+    calls = _fake_client(monkeypatch, lambda kw: SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content=""))]))
     with pytest.raises(ServiceError, match="empty"):
         llm.chat_text([{"role": "user", "content": "hi"}])
+    if "gpt-oss" in llm.settings.groq_llm_model:
+        assert calls[0]["reasoning_effort"] == "low"

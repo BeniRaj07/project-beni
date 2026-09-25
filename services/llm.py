@@ -1,5 +1,4 @@
-"""LLM calls (intent classification, summaries, small talk) via Claude, plus the Groq client used
-only for Whisper speech-to-text (services/speech_to_text.py) - Anthropic has no audio API."""
+"""Thin wrapper around the Groq chat API used for intent classification, summaries and small talk."""
 from __future__ import annotations
 
 import json
@@ -18,73 +17,48 @@ log = logging.getLogger(__name__)
 def get_groq_client():
     from groq import Groq  # imported lazily so tests don't need network access or keys
     # A slow/hung request used to cost up to 90s (30s timeout x 3 attempts) before the user saw
-    # any error - keep this tight since STT is the only thing still using Groq.
+    # any error; both STT and LLM calls share this client, so that latency hit every turn.
     return Groq(api_key=require_key(settings.groq_api_key, "GROQ_API_KEY"), timeout=15, max_retries=1)
 
 
+def _is_groq_error(e: Exception) -> bool:
+    return type(e).__module__.startswith("groq")
+
+
 def _translate_error(e: Exception) -> ServiceError:
-    """Groq-specific: used by services/speech_to_text.py for Whisper failures."""
     import groq
     if isinstance(e, groq.RateLimitError):
-        return RateLimitError("Groq", "the speech-to-text quota is exhausted for now — try again in a minute", status=429)
+        return RateLimitError("Groq", "the language model quota is exhausted for now — try again in a minute", status=429)
     if isinstance(e, (groq.APIConnectionError, groq.APITimeoutError)):
-        return ServiceError("Groq", "could not reach the speech-to-text service (check your internet connection)")
+        return ServiceError("Groq", "could not reach the language model (check your internet connection)")
     if isinstance(e, groq.AuthenticationError):
         return ServiceError("Groq", "the GROQ_API_KEY was rejected", status=401)
-    return ServiceError("Groq", "the speech-to-text service returned an error")
+    return ServiceError("Groq", "the language model returned an error")
 
 
-@lru_cache(maxsize=1)
-def get_anthropic_client():
-    from anthropic import Anthropic  # imported lazily so tests don't need network access or keys
-    kwargs: dict[str, Any] = {}
-    if settings.anthropic_workspace_id:
-        kwargs["default_headers"] = {"anthropic-workspace-id": settings.anthropic_workspace_id}
-    return Anthropic(api_key=require_key(settings.anthropic_api_key, "ANTHROPIC_API_KEY"),
-                     timeout=15, max_retries=1, **kwargs)
+def _model_kwargs(max_tokens: int) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {"model": settings.groq_llm_model, "max_tokens": max_tokens}
+    # gpt-oss models "think" before answering and the hidden reasoning counts against max_tokens;
+    # low effort keeps answers fast and stops the visible reply from being cut off.
+    if "gpt-oss" in settings.groq_llm_model:
+        kwargs["reasoning_effort"] = "low"
+    return kwargs
 
 
-def _is_claude_error(e: Exception) -> bool:
-    return type(e).__module__.startswith("anthropic")
-
-
-def _translate_claude_error(e: Exception) -> ServiceError:
-    import anthropic
-    if isinstance(e, anthropic.RateLimitError):
-        return RateLimitError("Claude", "the language model quota is exhausted for now — try again in a minute", status=429)
-    if isinstance(e, (anthropic.APIConnectionError, anthropic.APITimeoutError)):
-        return ServiceError("Claude", "could not reach the language model (check your internet connection)")
-    if isinstance(e, anthropic.AuthenticationError):
-        return ServiceError("Claude", "the ANTHROPIC_API_KEY was rejected", status=401)
-    return ServiceError("Claude", "the language model returned an error")
-
-
-def _split_system(messages: list[dict[str, str]]) -> tuple[str, list[dict[str, str]]]:
-    """Anthropic takes `system` as a separate top-level field, not a message role."""
-    system = "\n\n".join(m["content"] for m in messages if m.get("role") == "system")
-    rest = [m for m in messages if m.get("role") != "system"]
-    return system, rest
-
-
-def chat_text(messages: list[dict[str, str]], *, max_tokens: int = 1500) -> str:
-    # No `temperature` param: the installed anthropic SDK rejects it as an unexpected kwarg on
-    # messages.create() (client-side TypeError, not a server 400) - Claude's own default sampling
-    # is used instead.
-    system, msgs = _split_system(messages)
+def chat_text(messages: list[dict[str, str]], *, temperature: float = 0.4, max_tokens: int = 1500) -> str:
     try:
-        resp = get_anthropic_client().messages.create(
-            model=settings.claude_model, max_tokens=max_tokens,
-            system=system, messages=msgs)
+        resp = get_groq_client().chat.completions.create(
+            messages=messages, temperature=temperature, **_model_kwargs(max_tokens))
     except ServiceError:
         raise
     except Exception as e:  # noqa: BLE001 - translated into a user-safe error
-        if _is_claude_error(e):
-            log.warning("claude_error", extra={"error": type(e).__name__, "detail": str(e)})
-            raise _translate_claude_error(e) from e
+        if _is_groq_error(e):
+            log.warning("groq_error", extra={"error": type(e).__name__})
+            raise _translate_error(e) from e
         raise
-    text = "".join(b.text for b in resp.content if b.type == "text").strip()
+    text = (resp.choices[0].message.content or "").strip()
     if not text:
-        raise ServiceError("Claude", "the language model returned an empty answer")
+        raise ServiceError("Groq", "the language model returned an empty answer")
     return text
 
 
@@ -103,30 +77,35 @@ def parse_json_object(raw: str) -> dict[str, Any]:
 
 
 def chat_json(messages: list[dict[str, str]], *, max_tokens: int = 1500) -> dict[str, Any]:
-    """Ask for a JSON object. Retries once with a stricter reminder if the output is malformed,
-    and raises ServiceError if it still cannot be parsed."""
-    system, msgs = _split_system(messages)
-    system = (system + "\n\nRespond with ONLY a single JSON object - no markdown fences, no commentary.").strip()
+    """Ask for a JSON object. Uses JSON mode when the model supports it, retries once with a stricter
+    reminder if the output is malformed, and raises ServiceError if it still cannot be parsed."""
+    json_mode = True
+    msgs = messages
     last_error: Exception | None = None
     attempts = 0
     while attempts < 2:
+        extra = {"response_format": {"type": "json_object"}} if json_mode else {}
         try:
-            resp = get_anthropic_client().messages.create(
-                model=settings.claude_model, max_tokens=max_tokens,
-                system=system, messages=msgs)
+            resp = get_groq_client().chat.completions.create(
+                messages=msgs, temperature=0, **_model_kwargs(max_tokens), **extra)
         except ServiceError:
             raise
         except Exception as e:  # noqa: BLE001
-            if not _is_claude_error(e):
+            if not _is_groq_error(e):
                 raise
-            log.warning("claude_error", extra={"error": type(e).__name__, "detail": str(e)})
-            raise _translate_claude_error(e) from e
+            import groq
+            if isinstance(e, groq.BadRequestError) and json_mode:
+                # Model rejected JSON mode (or its strict validation failed): retry as plain text
+                log.warning("json_mode_rejected", extra={"model": settings.groq_llm_model})
+                json_mode = False
+                last_error = e
+                continue
+            raise _translate_error(e) from e
         attempts += 1
-        text = "".join(b.text for b in resp.content if b.type == "text")
         try:
-            return parse_json_object(text)
+            return parse_json_object(resp.choices[0].message.content or "")
         except (ValueError, json.JSONDecodeError) as e:
             last_error = e
             log.warning("llm_json_parse_failed", extra={"attempt": attempts})
-            msgs = msgs + [{"role": "user", "content": "Reply with ONLY the JSON object, nothing else."}]
-    raise ServiceError("Claude", "the language model gave an unreadable answer") from last_error
+            msgs = messages + [{"role": "user", "content": "Reply with ONLY the JSON object, nothing else."}]
+    raise ServiceError("Groq", "the language model gave an unreadable answer") from last_error
