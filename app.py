@@ -90,15 +90,18 @@ def text_turn(text: str, chatbot_history: list, conv_id: int | None, state: Conv
 
 
 def voice_turn(audio_path: str | None, chatbot_history: list, conv_id: int | None, state: ConversationState,
-              autoplay: bool):
+              autoplay: bool, lang_choice: str = "Auto"):
     """Same as text_turn, but the message comes from a recorded clip. Voice questions always get a
-    spoken reply (autoplay only gates typed messages); transcription failures are shown, not spoken."""
+    spoken reply (autoplay only gates typed messages); transcription failures are shown, not spoken.
+    lang_choice ("Auto"/"EN"/"ने") forces Whisper's language: auto-detection can mis-transcribe
+    Nepali speech into an unrelated script entirely, not just mislabel it."""
     if not audio_path:
         yield chatbot_history, conv_id, state, "", "", gr.skip(), gr.skip(), None
         return
     yield chatbot_history, conv_id, state, gr.skip(), "🎧 Transcribing…", gr.skip(), gr.skip(), gr.skip()
+    hint = {"EN": "en", "ने": "ne"}.get(lang_choice)
     try:
-        tr = transcribe(audio_path)
+        tr = transcribe(audio_path, hint)
     except STTError as e:
         yield chatbot_history, conv_id, state, gr.skip(), f"⚠️ {e.user_message}", gr.skip(), gr.skip(), None
         return
@@ -303,6 +306,9 @@ def build_ui() -> gr.Blocks:
                     gr.HTML('<button id="theme-toggle" onclick="awaazToggleTheme()" title="Toggle theme">🌓</button>')
                     autoplay_cb = gr.Checkbox(value=lambda: user_settings.get_settings().auto_play,
                                               label="🔊 Auto-play replies", container=False)
+                    mic_lang = gr.Radio(["Auto", "EN", "ने"], value="Auto", show_label=False,
+                                        container=False, elem_id="mic-lang",
+                                        info="🎤 Speech language (fixes mis-transcribed Nepali)")
 
             # ── dashboard: reminders | chat screen | tasks + weather ──────
             with gr.Row(elem_id="dashboard"):
@@ -334,7 +340,7 @@ def build_ui() -> gr.Blocks:
                        ).then(dashboard_panels, convo_state, dashboard_outputs)
         send_btn.click(text_turn, [text_in, chatbot, active_id, convo_state, autoplay_cb], turn_outputs
                       ).then(dashboard_panels, convo_state, dashboard_outputs)
-        mic_upload.upload(voice_turn, [mic_upload, chatbot, active_id, convo_state, autoplay_cb],
+        mic_upload.upload(voice_turn, [mic_upload, chatbot, active_id, convo_state, autoplay_cb, mic_lang],
                           [*turn_outputs, mic_upload]
                          ).then(dashboard_panels, convo_state, dashboard_outputs)
 
