@@ -1,11 +1,11 @@
-"""A sci-fi "circuit-board" HUD look: dark teal-on-black theme, CSS, and the small amount of
-client-side JavaScript the UI genuinely needs — most notably a continuous voice-session state
+"""A dark HUD console look — cyan-on-navy, Orbitron/Inter/JetBrains Mono — plus the small amount
+of client-side JavaScript the UI genuinely needs. Most notably a continuous voice-session state
 machine (LISTENING/USER_SPEAKING/PROCESSING/ASSISTANT_SPEAKING) driven by a persistent, always-on
 VAD loop, so talking over Awaaz while it's speaking interrupts it instantly with no button press —
-plus a live clock, a dark/light toggle, and an off-canvas conversation drawer. Sending, replying,
-playing audio and the conversation list are plain Gradio, driven from Python in app.py; this
-module only builds the look and a handful of pure-HTML dashboard widgets (reminders/tasks/weather
-cards) from data app.py hands it.
+plus a live clock, a live uptime ticker, a dark/light toggle, and an off-canvas conversation
+drawer. Sending, replying, playing audio and the conversation list are plain Gradio, driven from
+Python in app.py; this module only builds the look and the dashboard cards (system stats,
+weather, tasks, reminders, uptime) from data app.py hands it.
 """
 from __future__ import annotations
 
@@ -16,14 +16,15 @@ import gradio as gr
 
 # ── theme ────────────────────────────────────────────────────────────────────
 
-BG = "#040b0a"
-SURFACE = "rgba(7,26,24,.72)"
-SIDEBAR = "#03100e"
-BORDER = "rgba(52,230,200,.28)"
-TEXT = "#d8fff5"
-MUTED = "#6f9a92"
-ACCENT = "#2fe6c8"      # the reference image's glowing teal
-WARN = "#ff9f43"        # its warm orange accent, used sparingly (due/overdue, live status)
+BG = "#060b16"
+SURFACE = "#0c1729"
+SIDEBAR = "#080f1e"
+BORDER = "rgba(94,195,255,.16)"
+TEXT = "#e9f1fb"
+MUTED = "#7f92ab"
+ACCENT = "#4fd1ff"
+ACCENT2 = "#4b8bff"
+WARN = "#f5c451"
 
 
 def _both(**values: str) -> dict[str, str]:
@@ -35,25 +36,26 @@ def _both(**values: str) -> dict[str, str]:
 
 
 THEME = gr.themes.Base(
-    primary_hue="teal", neutral_hue="slate",
-    font=[gr.themes.GoogleFont("Rajdhani"), "ui-sans-serif", "system-ui", "sans-serif"],
-    font_mono=[gr.themes.GoogleFont("Share Tech Mono"), "ui-monospace", "monospace"],
+    primary_hue="blue", neutral_hue="slate",
+    font=[gr.themes.GoogleFont("Inter"), "ui-sans-serif", "system-ui", "sans-serif"],
+    font_mono=[gr.themes.GoogleFont("JetBrains Mono"), "ui-monospace", "monospace"],
 ).set(**_both(
     body_background_fill=BG, body_text_color=TEXT, body_text_color_subdued=MUTED,
     background_fill_primary=SURFACE, background_fill_secondary=SIDEBAR,
     block_background_fill=SURFACE, block_border_color=BORDER, block_border_width="1px",
-    block_radius="4px", block_label_text_color=MUTED, block_title_text_color=ACCENT,
+    block_radius="10px", block_label_text_color=MUTED, block_title_text_color=ACCENT,
     panel_background_fill=SIDEBAR, panel_border_color=BORDER,
     border_color_primary=BORDER, border_color_accent=ACCENT, color_accent=ACCENT,
-    input_background_fill="rgba(0,20,18,.6)", input_border_color=BORDER, input_border_color_focus=ACCENT,
+    input_background_fill="rgba(255,255,255,.03)", input_border_color=BORDER, input_border_color_focus=ACCENT,
     input_placeholder_color=MUTED,
-    button_primary_background_fill=ACCENT, button_primary_background_fill_hover="#5cf2da",
-    button_primary_text_color="#022420", button_primary_border_color=ACCENT,
-    button_secondary_background_fill="rgba(47,230,200,.08)",
-    button_secondary_background_fill_hover="rgba(47,230,200,.18)",
+    button_primary_background_fill=f"linear-gradient(140deg,{ACCENT2},{ACCENT})",
+    button_primary_background_fill_hover=ACCENT,
+    button_primary_text_color="#06131f", button_primary_border_color=ACCENT,
+    button_secondary_background_fill="rgba(255,255,255,.03)",
+    button_secondary_background_fill_hover="rgba(79,209,255,.14)",
     button_secondary_text_color=TEXT, button_secondary_border_color=BORDER,
     button_cancel_background_fill="rgba(239,68,68,.12)", button_cancel_text_color="#fca5a5",
-    link_text_color=ACCENT, code_background_fill="rgba(0,20,18,.6)",
+    link_text_color=ACCENT, code_background_fill="rgba(255,255,255,.03)",
 ))
 
 
@@ -61,239 +63,335 @@ THEME = gr.themes.Base(
 
 CSS = """
 :root[data-theme="light"] {
-  --bg:#eafbf7; --surface:#ffffff; --sidebar:#f0fbf8; --border:rgba(13,120,105,.25);
-  --text:#04231e; --muted:#4c766e; --accent:#0c9c85; --warn:#e07b1f;
+  --bg:#eef3fb; --panel:#ffffff; --panel-2:#f4f8ff; --border:rgba(30,80,160,.14);
+  --border-strong:rgba(30,80,160,.28); --text:#0b1830; --muted:#5c6b85; --faint:#8a97ad;
+  --accent:#0d7fc4; --accent-2:#2f6fed; --accent-soft:rgba(13,127,196,.08);
+  --good:#0ea968; --good-soft:rgba(14,169,104,.10); --warn:#c07a12; --warn-soft:rgba(192,122,18,.12);
 }
 :root, :root[data-theme="dark"] {
-  --bg:#040b0a; --surface:rgba(7,26,24,.72); --sidebar:#03100e; --border:rgba(52,230,200,.28);
-  --text:#d8fff5; --muted:#6f9a92; --accent:#2fe6c8; --warn:#ff9f43;
+  --bg:#060b16; --panel:#0c1729; --panel-2:#0f1d33; --border:rgba(94,195,255,.14);
+  --border-strong:rgba(94,195,255,.28); --text:#e9f1fb; --muted:#7f92ab; --faint:#566378;
+  --accent:#4fd1ff; --accent-2:#4b8bff; --accent-soft:rgba(79,209,255,.10);
+  --good:#34d399; --good-soft:rgba(52,211,153,.12); --warn:#f5c451; --warn-soft:rgba(245,196,81,.12);
 }
 body, gradio-app { background: var(--bg) !important; }
+/* Gradio's own theme bakes a fixed text color onto inline leaf elements (span/strong/svg/small)
+   inside the .prose wrapper it puts around every gr.HTML component's content, which silently
+   breaks normal CSS color inheritance from the parent this file styles per-theme (a dark-mode
+   value baked once at launch, invisible against a light background after the toggle). Forcing
+   inheritance here restores the cascade so these elements pick up whatever color their actual
+   parent has - which the rules below still control precisely via their own !important colors. */
+.prose span, .prose strong, .prose small, .prose svg,
+.prose svg path, .prose svg rect, .prose svg circle, .prose svg line { color: inherit !important; }
 .gradio-container { max-width: 100% !important; padding: 0 !important; margin: 0 !important;
-  font-family: 'Rajdhani', ui-sans-serif, sans-serif !important; height: 100vh; position: relative; }
+  font-family: 'Inter', ui-sans-serif, sans-serif !important; height: 100vh; position: relative; }
 footer { display: none !important; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: rgba(94,195,255,.18); border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(94,195,255,.32); }
+::-webkit-scrollbar-track { background: transparent; }
 
-/* circuit-board backdrop: fine grid + faint diagonal hatch corners + vignette glow */
+.mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+.display { font-family: 'Orbitron', 'Inter', sans-serif; }
+
 #app-root { height: 100vh; display: flex; flex-direction: column; position: relative; overflow: hidden; }
 #app-root::before {
   content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
   background:
-    radial-gradient(1100px 650px at 15% -10%, rgba(47,230,200,.10), transparent 60%),
-    radial-gradient(900px 600px at 105% 60%, rgba(47,230,200,.08), transparent 60%),
-    repeating-linear-gradient(135deg, rgba(52,230,200,.05) 0 2px, transparent 2px 14px),
-    linear-gradient(rgba(52,230,200,.05) 1px, transparent 1px) 0 0/34px 34px,
-    linear-gradient(90deg, rgba(52,230,200,.05) 1px, transparent 1px) 0 0/34px 34px;
-  -webkit-mask-image: radial-gradient(1200px 900px at 50% 20%, #000 55%, transparent 95%);
-          mask-image: radial-gradient(1200px 900px at 50% 20%, #000 55%, transparent 95%);
+    radial-gradient(1100px 480px at 18% -10%, rgba(75,139,255,.10), transparent 60%),
+    radial-gradient(900px 460px at 85% 0%, rgba(79,209,255,.08), transparent 55%),
+    repeating-linear-gradient(0deg, rgba(94,195,255,.025) 0 1px, transparent 1px 42px),
+    repeating-linear-gradient(90deg, rgba(94,195,255,.025) 0 1px, transparent 1px 42px);
 }
-h1, h2, h3, h4 { font-family: 'Rajdhani', sans-serif !important; }
-code, .mono { font-family: 'Share Tech Mono', monospace !important; }
+h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
 
 /* ── top bar ──────────────────────────────────────────── */
-#topbar { position: relative; z-index: 2; display: flex; align-items: center; gap: 14px;
+#topbar { position: relative; z-index: 3; display: flex; align-items: center; gap: 14px;
   padding: 10px 18px; border-bottom: 1px solid var(--border);
-  background: linear-gradient(180deg, rgba(3,16,14,.9), rgba(3,16,14,.6)); }
-#menu-btn { background: rgba(47,230,200,.08) !important; border: 1px solid var(--border) !important;
-  color: var(--accent) !important; min-width: 38px; height: 38px; border-radius: 8px !important;
-  clip-path: polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px); }
-#topbar .brand { font-family: 'Rajdhani', sans-serif; font-weight: 700; font-size: 1.15rem;
-  letter-spacing: .18em; color: var(--accent); text-shadow: 0 0 10px rgba(47,230,200,.55); }
-#topbar .brand small { display: block; font-family: 'Share Tech Mono', monospace; font-size: .6rem;
-  letter-spacing: .12em; color: var(--muted); font-weight: 400; }
+  background: linear-gradient(180deg, var(--panel-2), var(--panel)) !important; flex-wrap: wrap; }
+#menu-btn { background: rgba(79,139,255,.08) !important; border: 1px solid var(--border) !important;
+  color: var(--accent) !important; min-width: 38px; height: 38px; border-radius: 10px !important; }
+#menu-btn svg { width: 18px !important; height: 18px !important; flex: none; }
+#topbar .brand-wrap { display: flex; align-items: center; gap: 10px; }
+#topbar .brand { font-weight: 800; font-size: 1.05rem; letter-spacing: .28em;
+  background-image: linear-gradient(120deg, var(--accent), var(--accent-2)) !important;
+  -webkit-background-clip: text !important; background-clip: text !important;
+  -webkit-text-fill-color: transparent !important; color: transparent !important; }
+#topbar .status-tag { display: flex; align-items: center; gap: 6px; font-size: .72rem; font-weight: 600;
+  color: var(--good) !important; background: var(--good-soft); border: 1px solid rgba(52,211,153,.28);
+  padding: 3px 9px 3px 7px; border-radius: 999px; white-space: nowrap; }
+#topbar .status-tag .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+  animation: pulse-dot 2s ease-out infinite; }
+@keyframes pulse-dot { 0% { box-shadow: 0 0 0 0 rgba(52,211,153,.55) } 70% { box-shadow: 0 0 0 6px rgba(52,211,153,0) }
+  100% { box-shadow: 0 0 0 0 rgba(52,211,153,0) } }
 #topbar .spacer { flex: 1; }
-#topbar-clock { font-family: 'Share Tech Mono', monospace; font-size: 1.05rem; color: var(--text);
-  letter-spacing: .06em; text-align: right; }
-#topbar-clock .date { font-size: .68rem; color: var(--muted); letter-spacing: .1em; }
-.hud-icon { width: 38px; height: 38px; border-radius: 8px; display: grid; place-items: center;
-  background: rgba(47,230,200,.08); border: 1px solid var(--border); flex: none; }
-.hud-icon.status { color: var(--warn); } .hud-icon.status svg { filter: drop-shadow(0 0 4px var(--warn)); }
-.hud-icon.gear { color: var(--accent); cursor: pointer; }
+#topbar-clock { display: flex; align-items: center; gap: 9px; font-size: .86rem; color: var(--muted) !important; }
+#topbar-clock svg { width: 16px !important; height: 16px !important; flex: none; }
+#topbar-clock .time { font-size: .92rem; color: var(--text) !important; }
+#topbar-clock .divider { width: 1px; height: 14px; background: var(--border-strong); }
+.weather-chip { display: flex; align-items: center; gap: 7px; font-size: .82rem; color: var(--muted) !important;
+  padding: 5px 11px; border-radius: 999px; background: rgba(79,139,255,.06); border: 1px solid var(--border); }
+.weather-chip strong { color: var(--text) !important; font-weight: 600; }
+.weather-chip .city { color: var(--accent) !important; }
+.hud-icon { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center;
+  background: rgba(79,139,255,.07); border: 1px solid var(--border); flex: none; color: var(--muted) !important;
+  cursor: pointer; transition: .15s ease; }
+.hud-icon:hover { color: var(--accent) !important; border-color: var(--border-strong) !important; background: var(--accent-soft); }
+.hud-icon svg { width: 17px; height: 17px; }
 
-/* ── dashboard grid ───────────────────────────────────── */
+/* ── dashboard grid: left cards | center orb | right conversation ───────── */
 #dashboard { position: relative; z-index: 1; flex: 1 1 auto; min-height: 0; display: grid;
-  grid-template-columns: 240px 1fr 260px; gap: 14px; padding: 14px 16px 10px; }
-@media (max-width: 1100px) { #dashboard { grid-template-columns: 1fr; grid-template-rows: auto auto auto 1fr; } }
-#right-rail { display: flex; flex-direction: column; gap: 14px; min-height: 0; min-width: 0; }
-#right-rail > div:first-child { flex: 1 1 auto; min-height: 0; }
-#right-rail > div:last-child { flex: none; }
+  grid-template-columns: 288px minmax(360px, 1fr) 372px; gap: 16px; padding: 16px 18px;
+  grid-auto-rows: 100%; }
+/* CSS Grid's auto-row sizing doesn't reliably measure a flex-wrap child's true content height
+   (the #left-rail column of cards), so narrow screens drop the grid entirely for a plain
+   vertical flex stack instead - simpler and predictable rather than fighting that sizing quirk.
+   flex:none on the three sections is required here too: Gradio's own Column CSS defaults every
+   gr.Column to flex:1 1 0%, which - once #dashboard itself becomes a flex container - divides
+   its height evenly across all three regardless of their actual content, instead of sizing each
+   to fit; the overflow then spills silently onto the next section instead of pushing it down. */
+@media (max-width: 1180px) { #dashboard { display: flex; flex-direction: column; flex-wrap: nowrap;
+  overflow-y: auto; height: 100%; }
+  #left-rail, #center-screen, #right-rail { flex: none; } }
 
-.hud-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
-  padding: 12px 13px; display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden;
-  clip-path: polygon(0 0,calc(100% - 16px) 0,100% 16px,100% 100%,16px 100%,0 calc(100% - 16px));
-  box-shadow: 0 0 26px rgba(47,230,200,.06) inset; backdrop-filter: blur(6px); }
-.hud-panel .hp-title { font-size: .72rem; font-weight: 700; letter-spacing: .16em; color: var(--accent);
-  text-transform: uppercase; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; justify-content: space-between; }
-.hud-panel .hp-title .n { font-family: 'Share Tech Mono', monospace; color: var(--muted); font-weight: 400; }
-.hud-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1 1 auto; }
-.hud-list li { padding: 7px 2px 7px 10px; border-left: 2px solid var(--border); margin-bottom: 6px;
-  font-size: .86rem; color: var(--text); }
-.hud-list li.due { border-left-color: var(--warn); }
-.hud-list li.done { opacity: .55; text-decoration: line-through; }
-.hud-list li small { display: block; font-family: 'Share Tech Mono', monospace; font-size: .68rem;
-  color: var(--muted); margin-top: 1px; text-decoration: none; }
-.hud-list li.empty { border-color: transparent; color: var(--muted); font-style: italic; }
-.hud-ring-row { display: flex; align-items: center; gap: 12px; margin-top: 10px; padding-top: 10px;
-  border-top: 1px solid var(--border); }
-.hud-ring { flex: none; filter: drop-shadow(0 0 5px rgba(47,230,200,.35)); }
-.hud-ring-text { font-family: 'Share Tech Mono', monospace; font-size: 13px; fill: var(--accent); }
-.hud-ring-label { font-size: .78rem; color: var(--muted); }
+/* Grid rows default to auto-sizing around their tallest item's natural content height, which
+   would let the cards stack here grow the whole row (and leak past #app-root's clip) instead of
+   scrolling internally - grid-auto-rows:100% above plus height:100% here keeps this column
+   clipped to the row it was actually given, so overflow-y:auto has a real overflow to scroll. */
+/* flex-wrap:nowrap is explicit, not the default, because Gradio's own Column CSS sets
+   flex-wrap:wrap on every gr.Column by default - without this override the 5th card wraps into
+   a second, horizontally-offset column instead of stacking, invisibly overlapping center-screen. */
+#left-rail { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 14px; height: 100%;
+  min-height: 0; overflow-y: auto; padding-right: 2px; }
+@media (max-width: 1180px) { #left-rail { flex-direction: column; flex-wrap: nowrap; height: auto; overflow: visible; } }
+@media (max-width: 1180px) { #center-screen, #right-rail { height: auto; min-height: 480px; } }
 
-.hud-table-wrap { flex: 1 1 auto; overflow: hidden auto; min-height: 0; max-width: 100%; }
-.hud-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: .82rem; }
-.hud-table th { text-align: left; font-family: 'Share Tech Mono', monospace; font-size: .62rem;
-  letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 400;
-  padding: 0 4px 6px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface); }
-.hud-table th:first-child, .hud-table td:first-child { width: 62%; }
-.hud-table th:last-child, .hud-table td:last-child { width: 38%; }
-.hud-table td { padding: 6px 4px; border-bottom: 1px solid rgba(47,230,200,.08); color: var(--text);
-  vertical-align: top; overflow-wrap: break-word; }
-.hud-table td:last-child { font-family: 'Share Tech Mono', monospace; font-size: .74rem; color: var(--muted);
-  text-align: right; }
-.hud-table tr.due td:last-child { color: var(--warn); font-weight: 600; }
-.hud-table tr.done td:first-child { opacity: .55; text-decoration: line-through; }
-.hud-table-empty { color: var(--muted); font-style: italic; font-size: .84rem; padding: 4px 2px; margin: 0; }
+.card { background: linear-gradient(180deg, var(--panel-2), var(--panel)); border: 1px solid var(--border);
+  border-radius: 14px; padding: 14px 15px 14px; box-shadow: 0 14px 34px -20px rgba(0,0,0,.6); flex: none; }
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 11px; }
+.card-title { display: flex; align-items: center; gap: 8px; font-size: .82rem; font-weight: 700;
+  color: var(--text) !important; letter-spacing: .02em; }
+.card-title svg { width: 15px; height: 15px; color: var(--accent) !important; flex: none; }
+.count-pill { font-size: .68rem; font-weight: 600; color: var(--muted) !important; background: rgba(255,255,255,.03);
+  border: 1px solid var(--border); padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+  font-family: 'JetBrains Mono', monospace; }
 
-.weather-gauge { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 4px 0 2px; }
-.wg-ring-wrap { position: relative; width: 104px; height: 104px; }
-.wg-ring { width: 100%; height: 100%; filter: drop-shadow(0 0 6px rgba(47,230,200,.35)); }
-.wg-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-.wg-icon { font-size: 1.3rem; line-height: 1; margin-bottom: 3px; }
-.wg-temp { font-family: 'Share Tech Mono', monospace; font-size: 1.5rem; color: var(--accent);
-  text-shadow: 0 0 10px rgba(47,230,200,.5); line-height: 1; }
-.wg-temp small { font-size: .8rem; }
-.wg-place { font-size: .82rem; color: var(--text); margin-top: 10px; font-weight: 600; }
-.wg-cond { font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-top: 2px; }
+.stat-row { margin-bottom: 10px; }
+.stat-row-top { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 5px; }
+.stat-label { font-size: .74rem; color: var(--muted) !important; }
+.stat-value { font-size: .76rem; color: var(--text) !important; font-weight: 600; font-family: 'JetBrains Mono', monospace; }
+.bar-track { height: 6px; border-radius: 999px; background: rgba(255,255,255,.05); overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--accent-2), var(--accent)); }
+.bar-fill.warn { background: linear-gradient(90deg, #c98f2b, var(--warn)); }
+.tile-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-top: 4px; }
+.tile { background: rgba(255,255,255,.02); border: 1px solid var(--border); border-radius: 9px;
+  padding: 7px 5px; text-align: center; }
+.tile-label { font-size: .62rem; color: var(--faint) !important; margin-bottom: 3px; }
+.tile-value { font-size: .78rem; font-weight: 700; color: var(--text) !important; font-family: 'JetBrains Mono', monospace; }
 
-/* ── center screen ────────────────────────────────────── */
-#center-screen { position: relative; background: radial-gradient(120% 100% at 50% 0%, rgba(47,230,200,.07), transparent 60%), var(--surface);
-  border: 1px solid var(--border); border-radius: 8px; display: flex; flex-direction: column; min-height: 0;
-  box-shadow: 0 0 40px rgba(47,230,200,.08) inset, 0 0 0 1px rgba(47,230,200,.05); overflow: hidden; }
-#center-screen::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .5;
-  background: repeating-linear-gradient(0deg, rgba(47,230,200,.025) 0 1px, transparent 1px 3px); }
-#chatbot { flex: 1 1 auto; border: none !important; background: transparent !important; }
-#chatbot .message-wrap { max-width: 720px; margin: 0 auto; }
-#chatbot .message.user { background: rgba(47,230,200,.08) !important; border: 1px solid var(--border) !important;
-  border-radius: 12px !important; color: var(--text) !important; }
-#chatbot .message.bot { background: transparent !important; border: none !important; color: var(--text) !important; }
-#chatbot table { display: block; overflow-x: auto; white-space: nowrap; max-width: 100%; }
-#chatbot table td, #chatbot table th { white-space: nowrap; border-color: var(--border) !important; }
-#status-line { max-width: 720px; margin: -4px auto 0; padding: 0 20px; min-height: 18px;
-  font-size: .82rem; color: var(--accent); font-family: 'Share Tech Mono', monospace; }
-#status-line:not(:empty) { animation: pulse-text 1.3s ease-in-out infinite; }
-@keyframes pulse-text { 0%,100% { opacity: .45 } 50% { opacity: 1 } }
+.weather-hero { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; }
+.weather-temp { font-size: 1.7rem; font-weight: 700; line-height: 1; font-family: 'JetBrains Mono', monospace; }
+.weather-place { font-size: .8rem; color: var(--text) !important; font-weight: 600; margin-top: 7px; }
+.weather-cond { font-size: .72rem; color: var(--faint) !important; margin-top: 2px; text-transform: capitalize; }
+.weather-icon { width: 32px; height: 32px; color: var(--accent) !important; opacity: .9; flex: none; }
+.weather-icon svg { width: 100%; height: 100%; }
 
-#composer-wrap { position: relative; max-width: 760px; width: 100%; margin: 0 auto; padding: 6px 20px 16px; z-index: 1; }
-#composer { display: flex; align-items: center; gap: 10px; background: rgba(0,18,16,.7);
-  border: 1px solid var(--border); border-radius: 30px; padding: 5px 6px 5px 16px;
-  box-shadow: 0 0 18px rgba(47,230,200,.10) inset; }
-#composer-input textarea, #composer-input input { border: none !important; background: transparent !important;
-  box-shadow: none !important; font-size: 1rem !important; padding: 8px 4px !important; color: var(--text) !important; }
-#send-btn, .mic-btn { min-width: 42px !important; width: 42px; height: 42px; border-radius: 50% !important;
-  padding: 0 !important; font-size: 1.05rem !important; flex: none; position: relative; }
-#send-btn { background: radial-gradient(circle at 35% 30%, #6dffe6, var(--accent) 60%) !important;
-  border: 1px solid var(--accent) !important; color: #02201c !important;
-  box-shadow: 0 0 16px rgba(47,230,200,.65); }
-.mic-btn { background: rgba(47,230,200,.06) !important; border: 1px solid var(--border) !important;
-  color: var(--accent) !important; cursor: pointer; }
-.mic-btn::after { content: ""; position: absolute; inset: -5px; border-radius: 50%; border: 1px solid var(--border);
-  opacity: .6; }
-.mic-btn:hover { background: rgba(47,230,200,.14) !important; }
-.mic-btn.conv-on { background: rgba(47,230,200,.16) !important; border-color: var(--accent) !important;
-  box-shadow: 0 0 12px rgba(47,230,200,.5); }
-.mic-btn.recording { background: rgba(239,68,68,.15) !important; border-color: #ef4444 !important;
-  color: #ef4444 !important; animation: mic-pulse 1.1s ease-in-out infinite; }
-.mic-btn.recording::after { border-color: rgba(239,68,68,.5); }
-@keyframes mic-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,.45) } 50% { box-shadow: 0 0 0 9px rgba(239,68,68,0) } }
-/* Mic is still live (listening for barge-in) while Awaaz talks - a slower, calmer pulse than
-   .recording so it reads as "still on" without looking like an error/alert state. */
-.mic-btn.speaking { animation: mic-speaking-pulse 1.8s ease-in-out infinite; }
-@keyframes mic-speaking-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(47,230,200,.4) } 50% { box-shadow: 0 0 0 7px rgba(47,230,200,0) } }
-/* While a voice session is running, the JS-driven #mic-status line (below) is the single status
-   readout - suppress the Python-driven #status-line so the two never show conflicting text. */
-#app-root.voice-session-on #status-line { display: none; }
-/* Positioned absolutely (not inline) so it never fights Gradio's own flex-basis math for the
-   composer row's other children — it just floats above the mic button when shown. */
-.mic-btn-group { position: relative; flex: none; }
-#end-conv-btn { position: absolute; left: 50%; bottom: 54px; transform: translateX(-50%);
-  min-width: 68px; height: 28px; border-radius: 14px; white-space: nowrap;
-  background: rgba(10,26,24,.92); border: 1px solid rgba(239,68,68,.4);
-  color: #fca5a5; font-size: .74rem; padding: 0 10px; cursor: pointer;
-  font-family: 'Share Tech Mono', monospace; box-shadow: 0 4px 14px rgba(0,0,0,.4); }
-#end-conv-btn:hover { background: rgba(239,68,68,.18); }
-#rec-indicator { display: none; align-items: center; gap: 8px; max-width: 720px; margin: 0 auto 6px;
-  padding: 0 20px; font-size: .82rem; color: #ef4444; font-weight: 600; font-family: 'Share Tech Mono', monospace; }
-#rec-indicator.on { display: flex; }
-#rec-indicator .dot { width: 7px; height: 7px; border-radius: 50%; background: #ef4444; animation: mic-pulse 1s infinite; }
-#rec-indicator .bars { display: flex; align-items: center; gap: 2px; height: 14px; }
-#rec-indicator .bars i { width: 3px; background: #ef4444; border-radius: 2px; transition: height .08s; height: 4px; }
-#mic-status { font-size: .76rem; color: var(--muted); max-width: 720px; margin: 0 auto; padding: 0 20px;
-  min-height: 15px; font-family: 'Share Tech Mono', monospace; }
+.list { display: flex; flex-direction: column; gap: 7px; }
+.list-empty { font-size: .78rem; color: var(--faint) !important; font-style: italic; padding: 6px 2px; }
 
-/* decorative reticle, echoing the reference image's radar/targeting motif */
-.reticle { position: absolute; right: 14px; bottom: 8px; width: 64px; height: 64px; pointer-events: none;
-  opacity: .5; z-index: 0; }
-.reticle svg { width: 100%; height: 100%; }
-.reticle .spin { animation: reticle-spin 12s linear infinite; transform-origin: center; }
-@keyframes reticle-spin { to { transform: rotate(360deg); } }
+.task-item { display: flex; align-items: center; gap: 9px; padding: 7px 8px; border-radius: 9px;
+  background: rgba(255,255,255,.02); border: 1px solid transparent; }
+.task-check { width: 16px; height: 16px; border-radius: 5px; flex: none; border: 1.5px solid var(--faint);
+  display: flex; align-items: center; justify-content: center; color: transparent; }
+.task-check svg { width: 10px; height: 10px; }
+.task-item.done .task-check { background: var(--good); border-color: var(--good) !important; color: #06251a !important; }
+.task-text { flex: 1; font-size: .78rem; color: var(--text) !important; font-weight: 500; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-item.done .task-text { color: var(--faint) !important; text-decoration: line-through; }
+.task-tag { font-size: .62rem; font-weight: 600; padding: 2px 7px; border-radius: 999px; white-space: nowrap; flex: none; }
+.task-tag.due-today, .task-tag.overdue { color: var(--warn) !important; background: var(--warn-soft); }
+.task-tag.due-later { color: var(--muted) !important; background: rgba(255,255,255,.04); }
+.task-tag.done-tag { color: var(--good) !important; background: var(--good-soft); }
+.progress-line { display: flex; align-items: center; gap: 9px; margin-top: 11px; }
+.progress-line .bar-track { flex: 1; }
+.progress-line span { font-size: .68rem; color: var(--faint) !important; white-space: nowrap; font-family: 'JetBrains Mono', monospace; }
+
+.reminder-item { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 9px;
+  background: rgba(255,255,255,.02); }
+.reminder-time { flex: none; text-align: center; min-width: 50px; font-size: .66rem; font-weight: 700;
+  color: var(--accent) !important; background: var(--accent-soft); border: 1px solid var(--border); border-radius: 8px;
+  padding: 4px 5px; line-height: 1.2; font-family: 'JetBrains Mono', monospace; }
+.reminder-time .day { display: block; font-size: .58rem; color: var(--muted) !important; font-weight: 600; margin-top: 1px;
+  font-family: 'Inter', sans-serif; }
+.reminder-body { flex: 1; min-width: 0; }
+.reminder-title { font-size: .78rem; color: var(--text) !important; font-weight: 500; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.reminder-meta { font-size: .64rem; color: var(--faint) !important; margin-top: 1px; }
+.reminder-item.due .reminder-time { color: var(--warn) !important; background: var(--warn-soft); }
+
+.uptime-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0 10px;
+  border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+.uptime-row .stat-label { margin: 0; }
+.uptime-value { font-size: .78rem; color: var(--text) !important; font-family: 'JetBrains Mono', monospace; }
+
+/* ── center: voice orb ───────────────────────────────────── */
+#center-screen { position: relative; z-index: 1; display: flex; flex-direction: column; flex-wrap: nowrap;
+  align-items: center; justify-content: center; gap: 22px; height: 100%; min-height: 0; padding: 10px; }
+.orb-wrap { position: relative; width: 240px; height: 240px; display: flex; align-items: center; justify-content: center; }
+.orb-ring { position: absolute; border-radius: 50%; border: 1px solid var(--border-strong); }
+.ring-1 { inset: 0; animation: orb-spin 26s linear infinite; border-style: dashed; opacity: .5; }
+.ring-2 { inset: 22px; animation: orb-spin 18s linear infinite reverse; opacity: .38; }
+@keyframes orb-spin { to { transform: rotate(360deg); } }
+.orb-core { width: 138px; height: 138px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(circle at 35% 30%, rgba(79,209,255,.30), rgba(11,20,38,.92) 68%);
+  border: 1px solid var(--border-strong); box-shadow: 0 0 50px -6px rgba(79,209,255,.3), inset 0 0 34px rgba(79,209,255,.1);
+  transition: box-shadow .3s ease; }
+.orb-wrap.st-listening .orb-core, .orb-wrap.st-processing .orb-core, .orb-wrap.st-assistant_speaking .orb-core {
+  animation: orb-breathe 3.4s ease-in-out infinite; }
+@keyframes orb-breathe { 0%,100% { box-shadow: 0 0 50px -6px rgba(79,209,255,.3), inset 0 0 34px rgba(79,209,255,.1); }
+  50% { box-shadow: 0 0 66px -4px rgba(79,209,255,.48), inset 0 0 42px rgba(79,209,255,.18); } }
+.orb-wrap.st-user_speaking .orb-core { border-color: rgba(239,68,68,.5);
+  box-shadow: 0 0 54px -4px rgba(239,68,68,.4), inset 0 0 34px rgba(239,68,68,.14); }
+.wave-bars { display: flex; align-items: center; gap: 4px; height: 26px; }
+.wave-bars i { width: 3px; border-radius: 3px; background: var(--accent); display: block; height: 6px;
+  transition: height .09s ease; }
+.orb-wrap.st-user_speaking .wave-bars i { background: #f2596b; }
+.orb-wrap.st-listening .wave-bars i, .orb-wrap.st-processing .wave-bars i, .orb-wrap.st-assistant_speaking .wave-bars i {
+  animation: wave-idle 1.15s ease-in-out infinite; }
+.wave-bars i:nth-child(1) { animation-delay: -.9s; } .wave-bars i:nth-child(2) { animation-delay: -.6s; }
+.wave-bars i:nth-child(3) { animation-delay: -.3s; } .wave-bars i:nth-child(4) { animation-delay: -.75s; }
+.wave-bars i:nth-child(5) { animation-delay: -.15s; }
+@keyframes wave-idle { 0%,100% { height: 6px; opacity: .5; } 50% { height: 22px; opacity: 1; } }
+
+.brand-title { font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 1.5rem; letter-spacing: .4em;
+  margin: 0; padding-left: .4em; color: var(--text) !important; }
+.status-pill { display: flex; align-items: center; gap: 8px; font-size: .8rem; font-weight: 600;
+  color: var(--muted) !important; background: rgba(255,255,255,.03); border: 1px solid var(--border);
+  padding: 6px 15px; border-radius: 999px; transition: .2s ease; }
+.status-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); flex: none; }
+.status-pill.live { color: var(--good) !important; background: var(--good-soft); border-color: rgba(52,211,153,.28); }
+.status-pill.live .dot { background: var(--good); animation: pulse-dot 2s ease-out infinite; }
+.status-pill.hearing { color: #f2596b !important; background: rgba(242,89,107,.12); border-color: rgba(242,89,107,.3); }
+.status-pill.hearing .dot { background: #f2596b; }
+
+.dock { display: flex; align-items: center; gap: 16px; }
+.dock-btn { width: 50px; height: 50px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(180deg, var(--panel-2), var(--panel)); border: 1px solid var(--border);
+  color: var(--muted) !important; cursor: pointer; transition: .18s ease; }
+.dock-btn:hover { color: var(--accent) !important; border-color: var(--border-strong) !important; transform: translateY(-2px); }
+.dock-btn svg { width: 20px; height: 20px; }
+.dock-btn--mic { width: 62px; height: 62px; background: linear-gradient(140deg, var(--accent-2), var(--accent));
+  color: #06131f !important; border: none; box-shadow: 0 10px 26px -8px rgba(79,209,255,.55); position: relative; }
+.dock-btn--mic:hover { color: #06131f !important; transform: translateY(-2px) scale(1.03); }
+.dock-btn--mic.conv-on { box-shadow: 0 0 0 4px rgba(79,209,255,.22), 0 10px 26px -8px rgba(79,209,255,.6); }
+.dock-btn--mic.recording { background: linear-gradient(140deg, #f2596b, #ff8a5c);
+  box-shadow: 0 0 0 4px rgba(242,89,107,.22), 0 10px 26px -8px rgba(242,89,107,.6); }
+.dock-btn--mic.speaking { animation: mic-speak-pulse 1.8s ease-in-out infinite; }
+@keyframes mic-speak-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(79,209,255,.4) } 50% { box-shadow: 0 0 0 8px rgba(79,209,255,0) } }
+#end-conv-btn { min-width: 68px; height: 26px; border-radius: 13px; white-space: nowrap;
+  background: rgba(242,89,107,.1); border: 1px solid rgba(242,89,107,.4); color: #f2596b !important; font-size: .7rem;
+  padding: 0 10px; cursor: pointer; font-family: 'JetBrains Mono', monospace; display: none; }
+#end-conv-btn:hover { background: rgba(242,89,107,.2); }
 
 #mic-upload { position: absolute !important; left: -9999px !important; width: 1px !important; height: 1px !important;
   overflow: hidden !important; }
-/* The reply is spoken, not watched: keep the <audio> element mounted (autoplay still fires) but hide
-   its waveform/scrubber/Stop-button chrome entirely. Speaking into the mic (see JS) interrupts it. */
 #audio-row { position: absolute !important; left: -9999px !important; width: 1px !important; height: 1px !important;
   overflow: hidden !important; }
 
-/* ── sidebar drawer (off-canvas on every screen size) ──── */
+/* ── right: conversation panel ───────────────────────────── */
+#right-rail { display: flex; flex-direction: column; flex-wrap: nowrap; height: 100%; min-height: 0;
+  background: linear-gradient(180deg, var(--panel-2), var(--panel));
+  border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+#convo-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 13px 15px;
+  border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+#convo-head h2 { margin: 0; font-size: .92rem; font-weight: 700; color: var(--text) !important; }
+#convo-actions { display: flex; gap: 7px; flex: none; }
+.chip-btn { display: flex !important; align-items: center; gap: 5px !important; font-size: .72rem !important;
+  font-weight: 600 !important; color: var(--muted) !important; background: rgba(255,255,255,.03) !important;
+  border: 1px solid var(--border) !important; padding: 5px 10px !important; border-radius: 8px !important;
+  min-width: 0 !important; height: auto !important; box-shadow: none !important; }
+.chip-btn:hover { border-color: var(--border-strong) !important; color: var(--text) !important; }
+#extract-btn { color: var(--accent) !important; border-color: rgba(79,209,255,.3) !important;
+  background: var(--accent-soft) !important; }
+
+#chatbot { flex: 1 1 auto; min-height: 0; border: none !important; background: transparent !important; }
+#chatbot .message-wrap { padding: 4px 15px !important; }
+#chatbot .message.user { background: linear-gradient(140deg, var(--accent-2), var(--accent)) !important;
+  border: none !important; border-radius: 13px 13px 3px 13px !important; color: #06131f !important;
+  font-weight: 500 !important; }
+#chatbot .message.bot { background: rgba(79,139,255,.07) !important; border: 1px solid var(--border) !important;
+  border-radius: 13px 13px 13px 3px !important; color: var(--text) !important; }
+#chatbot table { display: block; overflow-x: auto; white-space: nowrap; max-width: 100%; }
+#chatbot table td, #chatbot table th { white-space: nowrap; border-color: var(--border) !important; }
+
+#status-line { padding: 0 15px; min-height: 16px; font-size: .74rem; color: var(--accent) !important;
+  font-family: 'JetBrains Mono', monospace; flex: none; }
+#status-line:not(:empty) { animation: pulse-text 1.3s ease-in-out infinite; }
+/* While a voice session is running, the orb's own status pill is the single status readout for
+   that turn - suppress this text line so the two never show duplicate or conflicting text. Typed
+   (non-voice) turns have no voice session active, so this line still carries their status. */
+#app-root.voice-session-on #status-line { display: none; }
+@keyframes pulse-text { 0%,100% { opacity: .45 } 50% { opacity: 1 } }
+
+#composer-wrap { flex: none; padding: 10px 14px 14px; border-top: 1px solid var(--border); }
+#composer { display: flex; align-items: center; gap: 9px; }
+#composer-input textarea, #composer-input input { border: 1px solid var(--border) !important;
+  background: rgba(255,255,255,.03) !important; border-radius: 10px !important; box-shadow: none !important;
+  font-size: .86rem !important; padding: 9px 12px !important; color: var(--text) !important; }
+#composer-input textarea:focus, #composer-input input:focus { border-color: var(--border-strong) !important; }
+#send-btn { min-width: 38px !important; width: 38px; height: 38px; border-radius: 10px !important;
+  padding: 0 !important; font-size: 1rem !important; flex: none;
+  background: linear-gradient(140deg, var(--accent-2), var(--accent)) !important; border: none !important;
+  color: #06131f !important; box-shadow: 0 8px 20px -8px rgba(79,209,255,.55); }
+
+/* ── sidebar drawer (off-canvas conversation history) ────── */
 #sidebar { position: fixed; z-index: 50; left: 0; top: 0; bottom: 0; width: 300px; max-width: 82vw;
-  background: var(--sidebar) !important; border-right: 1px solid var(--border);
-  display: flex; flex-direction: column; padding: 10px !important; gap: 8px;
+  background: var(--panel) !important; border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; flex-wrap: nowrap; padding: 10px !important; gap: 8px;
   transform: translateX(-100%); transition: transform .22s ease; box-shadow: 10px 0 30px rgba(0,0,0,.5); }
 #app-root.sidebar-open #sidebar { transform: translateX(0); }
 #app-root.sidebar-open #scrim { opacity: 1; pointer-events: auto; }
-#scrim { position: fixed; inset: 0; z-index: 45; background: rgba(0,8,7,.6); opacity: 0; pointer-events: none;
+#scrim { position: fixed; inset: 0; z-index: 45; background: rgba(3,7,15,.6); opacity: 0; pointer-events: none;
   transition: opacity .2s ease; }
 #sidebar-header { display: flex; align-items: center; gap: 8px; padding: 6px 6px 2px; }
-#sidebar-header .logo { font-size: 1.2rem; }
-#sidebar-header .name { font-weight: 700; font-size: 1rem; color: var(--accent); letter-spacing: .08em; }
+#sidebar-header .logo { font-size: 1.1rem; }
+#sidebar-header .name { font-weight: 800; font-size: .92rem; color: var(--accent) !important; letter-spacing: .16em; }
 #sidebar-header .spacer { flex: 1; }
 #sidebar-close { background: transparent !important; border: 1px solid var(--border) !important;
-  color: var(--muted) !important; width: 26px; height: 26px; border-radius: 6px !important;
-  cursor: pointer; font-size: .8rem; }
-#sidebar-close:hover { color: var(--text) !important; background: rgba(47,230,200,.12) !important; }
-#new-chat-btn { border: 1px solid var(--border) !important; background: rgba(47,230,200,.06) !important;
+  color: var(--muted) !important; width: 26px; height: 26px; border-radius: 6px !important; cursor: pointer; font-size: .8rem; }
+#sidebar-close:hover { color: var(--text) !important; background: var(--accent-soft) !important; }
+#new-chat-btn { border: 1px solid var(--border) !important; background: rgba(79,139,255,.06) !important;
   color: var(--text) !important; justify-content: flex-start !important; font-weight: 600 !important;
   border-radius: 8px !important; }
-#new-chat-btn:hover { background: rgba(47,230,200,.14) !important; }
-#search-box textarea, #search-box input { border-radius: 8px !important; font-size: .9rem !important; }
+#new-chat-btn:hover { background: var(--accent-soft) !important; }
+#search-box textarea, #search-box input { border-radius: 8px !important; font-size: .86rem !important; }
 #sidebar-scroll { flex: 1 1 auto; overflow-y: auto; min-height: 0; padding-right: 2px; }
-.conv-group-label { font-size: .68rem; font-weight: 700; letter-spacing: .1em; color: var(--muted);
+.conv-group-label { font-size: .64rem; font-weight: 700; letter-spacing: .1em; color: var(--faint) !important;
   text-transform: uppercase; margin: 12px 8px 4px; }
 .conv-row { display: flex; align-items: center; gap: 2px; border-radius: 6px; }
-.conv-row:hover, .conv-row.active { background: rgba(47,230,200,.10); }
-.conv-title-btn { flex: 1; text-align: left !important; background: transparent !important;
-  border: none !important; color: var(--text) !important; font-size: .88rem !important;
-  font-weight: 400 !important; padding: 8px 6px !important; white-space: nowrap; overflow: hidden;
-  text-overflow: ellipsis; display: block; min-width: 0; box-shadow: none !important; }
+.conv-row:hover, .conv-row.active { background: var(--accent-soft); }
+.conv-title-btn { flex: 1; text-align: left !important; background: transparent !important; border: none !important;
+  color: var(--text) !important; font-size: .84rem !important; font-weight: 400 !important; padding: 8px 6px !important;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; min-width: 0; box-shadow: none !important; }
 .conv-row.active .conv-title-btn { color: var(--accent) !important; font-weight: 600 !important; }
-.conv-icon-btn { min-width: 26px !important; width: 26px !important; height: 26px !important;
-  padding: 0 !important; background: transparent !important; border: none !important;
-  color: var(--muted) !important; font-size: .85rem !important; border-radius: 6px !important;
-  opacity: 0; transition: opacity .12s; }
+.conv-icon-btn { min-width: 26px !important; width: 26px !important; height: 26px !important; padding: 0 !important;
+  background: transparent !important; border: none !important; color: var(--faint) !important; font-size: .8rem !important;
+  border-radius: 6px !important; opacity: 0; transition: opacity .12s; }
 .conv-row:hover .conv-icon-btn { opacity: 1; }
-.conv-icon-btn:hover { background: rgba(47,230,200,.18) !important; color: var(--text) !important; }
+.conv-icon-btn:hover { background: var(--accent-soft) !important; color: var(--text) !important; }
 #rename-bar { padding: 4px 2px 8px; }
-#sidebar-footer { border-top: 1px solid var(--border); padding-top: 8px; display: flex;
-  align-items: center; justify-content: space-between; gap: 6px; }
-#sidebar-footer label { font-size: .8rem !important; color: var(--muted) !important; }
-#theme-toggle { min-width: 34px !important; width: 34px; height: 34px; border-radius: 50% !important;
+#sidebar-footer { border-top: 1px solid var(--border); padding-top: 8px; display: flex; align-items: center;
+  justify-content: space-between; gap: 6px; flex-wrap: wrap; }
+#sidebar-footer label { font-size: .78rem !important; color: var(--muted) !important; }
+#theme-toggle { min-width: 32px !important; width: 32px; height: 32px; border-radius: 50% !important;
   padding: 0 !important; background: transparent !important; border: 1px solid var(--border) !important; }
 
 @media (max-width: 640px) {
-  #dashboard { padding: 10px 10px 6px; gap: 10px; }
+  #dashboard { padding: 10px; gap: 10px; }
   #topbar .brand small { display: none; }
-  #topbar-clock { font-size: .85rem; }
-  .reticle { display: none; }
+  .brand-title { font-size: 1.1rem; letter-spacing: .2em; }
+  .orb-wrap { width: 180px; height: 180px; }
+  .orb-core { width: 104px; height: 104px; }
 }
 """
 
@@ -304,7 +402,7 @@ def head(initial_theme: str) -> str:
     theme = "light" if initial_theme == "light" else "dark"
     return f"""
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;800;900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script>document.documentElement.dataset.theme = localStorage.getItem("awaaz-theme") || "{theme}";</script>
 <script>{JS}</script>
 """
@@ -329,21 +427,57 @@ JS = r"""
     const root = document.getElementById("app-root");
     if (!root || !root.classList.contains("sidebar-open")) return;
     const sidebar = document.getElementById("sidebar");
-    const opener = e.target.closest("#menu-btn");
+    const opener = e.target.closest("#menu-btn, #history-btn");
     if (sidebar && !sidebar.contains(e.target) && !opener) root.classList.remove("sidebar-open");
   });
 
+  // ── keyboard dock button: jump focus to the text composer, no voice session involved ──
+  window.awaazFocusComposer = function () {
+    const el = document.querySelector("#composer-input textarea, #composer-input input");
+    if (el) el.focus();
+  };
+
   // ── live clock ──
   function tickClock() {
-    const el = document.getElementById("topbar-clock");
-    if (!el) return;
+    const t = document.getElementById("topbar-time"), d = document.getElementById("topbar-date");
+    if (!t && !d) return;
     const now = new Date();
-    const time = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
-    const date = now.toLocaleDateString([], { weekday: "short", day: "2-digit", month: "short" });
-    el.innerHTML = time + '<div class="date">' + date + "</div>";
+    if (t) t.textContent = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true });
+    if (d) d.textContent = now.toLocaleDateString([], { month: "long", day: "numeric", year: "numeric" });
   }
   setInterval(tickClock, 1000);
   document.addEventListener("DOMContentLoaded", tickClock);
+
+  // ── live uptime ticker: purely cosmetic per-second smoothing between the ~30s server polls ──
+  // Reads data-start (ms since epoch, when the app process started) fresh every tick, so it keeps
+  // working correctly across Gradio re-rendering the card's HTML on every dashboard refresh.
+  function tickUptime() {
+    document.querySelectorAll("[data-uptime-start]").forEach(function (el) {
+      const start = Number(el.dataset.uptimeStart);
+      if (!start) return;
+      const s = Math.max(0, Math.floor((Date.now() - start) / 1000));
+      const h = String(Math.floor(s / 3600)).padStart(2, "0");
+      const m = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
+      const sec = String(s % 60).padStart(2, "0");
+      el.textContent = h + ":" + m + ":" + sec;
+    });
+  }
+  setInterval(tickUptime, 1000);
+  document.addEventListener("DOMContentLoaded", tickUptime);
+
+  // ── mirror the Weather card's live figures into the top bar's compact chip ──
+  // A plain poll (not a MutationObserver) since a couple of seconds' staleness on a weather
+  // readout is irrelevant, and this avoids wiring a 4th Gradio output just for the top bar.
+  function syncWeatherChip() {
+    const t = document.querySelector("#weather-card .weather-temp");
+    const p = document.querySelector("#weather-card .weather-place");
+    const ct = document.getElementById("topbar-weather-temp");
+    const cp = document.getElementById("topbar-weather-place");
+    if (t && ct) ct.textContent = t.textContent;
+    if (p && cp) cp.textContent = p.textContent.split(",")[0];
+  }
+  setInterval(syncWeatherChip, 2000);
+  document.addEventListener("DOMContentLoaded", syncWeatherChip);
 
   // ── continuous voice session with real barge-in (VAD-driven, not tap-driven) ──
   // Tap once: ONE microphone grant for the whole session. The mic stays live and is continuously
@@ -370,7 +504,7 @@ JS = r"""
 
   const STATE = { IDLE: "idle", LISTENING: "listening", USER_SPEAKING: "user_speaking",
                  PROCESSING: "processing", ASSISTANT_SPEAKING: "assistant_speaking" };
-  const STATUS_TEXT = { listening: "Listening…", user_speaking: "Hearing you…",
+  const STATUS_TEXT = { idle: "Tap the mic to start", listening: "Listening…", user_speaking: "Hearing you…",
                         processing: "Thinking…", assistant_speaking: "Speaking…" };
 
   const SESSION = {
@@ -388,19 +522,27 @@ JS = r"""
     return "";
   }
   function setBars(level) {
-    document.querySelectorAll("#rec-indicator .bars i").forEach(function (bar, i) {
-      bar.style.height = (4 + Math.min(16, level * (140 + i * 30))) + "px";
+    document.querySelectorAll(".wave-bars i").forEach(function (bar, i) {
+      bar.style.height = (5 + Math.min(20, level * (160 + i * 30))) + "px";
     });
   }
   function setStatus(text) { const el = document.getElementById("mic-status"); if (el) el.textContent = text || ""; }
   function refreshUI() {
-    document.querySelectorAll(".mic-btn").forEach(function (b) {
+    document.querySelectorAll(".dock-btn--mic").forEach(function (b) {
       b.classList.toggle("conv-on", SESSION.active);
       b.classList.toggle("recording", SESSION.state === STATE.USER_SPEAKING);
       b.classList.toggle("speaking", SESSION.state === STATE.ASSISTANT_SPEAKING);
     });
     const end = document.getElementById("end-conv-btn"); if (end) end.style.display = SESSION.active ? "" : "none";
-    const ind = document.getElementById("rec-indicator"); if (ind) ind.classList.toggle("on", SESSION.state === STATE.USER_SPEAKING);
+    const orb = document.getElementById("voice-orb");
+    if (orb) {
+      orb.className = "orb-wrap st-" + SESSION.state;
+    }
+    const pill = document.getElementById("status-pill");
+    if (pill) {
+      pill.classList.toggle("live", SESSION.active && SESSION.state !== STATE.USER_SPEAKING);
+      pill.classList.toggle("hearing", SESSION.state === STATE.USER_SPEAKING);
+    }
     const root = document.getElementById("app-root"); if (root) root.classList.toggle("voice-session-on", SESSION.active);
   }
   function setState(next) { SESSION.state = next; setStatus(STATUS_TEXT[next] || ""); refreshUI(); }
@@ -456,7 +598,6 @@ JS = r"""
     SESSION.stream = null; SESSION.ctx = null; SESSION.analyser = null;
     stopSpeaking();
     setState(STATE.IDLE);
-    setStatus("");
   }
   window.awaazEndConversation = endSession;
 
@@ -623,129 +764,192 @@ def sidebar_header_html() -> str:
 </div>"""
 
 
-WIFI_SVG = ('<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" '
-           'stroke-width="2" stroke-linecap="round"><path d="M2 8.5a16 16 0 0 1 20 0"/>'
-           '<path d="M5.5 12.5a11 11 0 0 1 13 0"/><path d="M9 16.5a6 6 0 0 1 6 0"/>'
-           '<circle cx="12" cy="20" r="1.2" fill="currentColor" stroke="none"/></svg>')
-GEAR_SVG = ('<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" '
-           'stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M12 3v2.2M12 18.8V21M21 12h-2.2'
-           'M5.2 12H3M18.4 5.6l-1.5 1.5M7.1 16.9l-1.5 1.5M18.4 18.4l-1.5-1.5M7.1 7.1 5.6 5.6"/></svg>')
-
+GEAR_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'
+           '<circle cx="12" cy="12" r="3.2"/><path d="M12 3v2.2M12 18.8V21M21 12h-2.2M5.2 12H3M18.4 5.6l-1.5 1.5'
+           'M7.1 16.9l-1.5 1.5M18.4 18.4l-1.5-1.5M7.1 7.1 5.6 5.6"/></svg>')
+MENU_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round">'
+           '<path d="M4 7h16M4 12h16M4 17h16"/></svg>')
+CPU_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'
+          '<rect x="6" y="6" width="12" height="12" rx="2"/><path stroke-linecap="round" '
+          'd="M9 3v2M15 3v2M9 19v2M15 19v2M3 9h2M3 15h2M19 9h2M19 15h2"/></svg>')
+CLOUD_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'
+            '<path d="M7 18h10a4 4 0 0 0 .4-8 5.5 5.5 0 0 0-10.6 1.7A3.5 3.5 0 0 0 7 18Z"/></svg>')
+RAIN_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'
+           '<path d="M7 15h10a4 4 0 0 0 .4-8 5.5 5.5 0 0 0-10.6 1.7A3.5 3.5 0 0 0 7 15Z"/>'
+           '<path stroke-linecap="round" d="M8 18v2M12 18v2M16 18v2"/></svg>')
+CHECKLIST_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'
+                 '<path stroke-linecap="round" stroke-linejoin="round" d="M9 11l2.5 2.5L16 9"/>'
+                 '<rect x="3.5" y="3.5" width="17" height="17" rx="4"/></svg>')
+BELL_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'
+           '<path stroke-linejoin="round" d="M6 8a6 6 0 1 1 12 0c0 4 1.5 5.5 1.5 5.5h-15S6 12 6 8Z"/>'
+           '<path stroke-linecap="round" d="M10 18a2 2 0 0 0 4 0"/></svg>')
+CLOCK_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'
+            '<circle cx="12" cy="12" r="9"/><path stroke-linecap="round" d="M12 8v4l2.5 1.5"/></svg>')
+MIC_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">'
+          '<rect x="9" y="3" width="6" height="11" rx="3"/>'
+          '<path stroke-linecap="round" d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>')
+KEYBOARD_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'
+               '<rect x="2.5" y="6" width="19" height="12" rx="2.4"/>'
+               '<path stroke-linecap="round" d="M6 10h.01M9.5 10h.01M13 10h.01M16.5 10h.01M6 14h12"/></svg>')
 
 def topbar_html() -> str:
     return f"""
 <div id="topbar">
-  <button id="menu-btn" onclick="awaazToggleSidebar()" title="Conversations">☰</button>
-  <div class="brand">AWAAZ<small>BILINGUAL VOICE ASSISTANT · नेपाली / ENGLISH</small></div>
+  <button id="menu-btn" onclick="awaazToggleSidebar()" title="Conversations">{MENU_SVG}</button>
+  <div class="brand-wrap">
+    <span class="brand">AWAAZ</span>
+    <span class="status-tag"><span class="dot"></span>Online</span>
+  </div>
   <div class="spacer"></div>
-  <div id="topbar-clock" class="mono">--:--:--<div class="date">···</div></div>
-  <div class="hud-icon status" title="Online">{WIFI_SVG}</div>
-  <div class="hud-icon gear" onclick="awaazToggleSidebar()" title="Settings &amp; conversations">{GEAR_SVG}</div>
+  <div id="topbar-clock" class="mono">
+    {CLOCK_SVG}
+    <span class="time" id="topbar-time">--:--:-- --</span>
+    <span class="divider"></span>
+    <span id="topbar-date">···</span>
+  </div>
+  <div class="weather-chip" id="topbar-weather">{CLOUD_SVG}
+    <strong class="mono" id="topbar-weather-temp">--°C</strong>
+    <span class="city" id="topbar-weather-place">···</span>
+  </div>
+  <div class="hud-icon" onclick="awaazToggleSidebar()" title="Settings &amp; conversations">{GEAR_SVG}</div>
 </div>"""
 
 
-def welcome_html(language: str = "en") -> str:
+def conversation_welcome_html(language: str = "en") -> str:
     if language == "ne":
-        title, sub = "आवाज सहायक", "नमस्ते! रिमाइन्डर, काम, मौसम वा फुटबल बारे सोध्नुहोस् — बोलेर वा लेखेर।"
+        title, sub = "आवाज सहायक", "नमस्ते! रिमाइन्डर, काम, मौसम वा फुटबल बारे सोध्नुहोस्।"
     else:
-        title, sub = "Awaaz", "Hi! Ask about reminders, tasks, weather or football — by voice or by typing."
-    return (f"<div style='text-align:center;opacity:.8;padding-top:6vh'>"
-           f"<div style='font-size:2.2rem'>🗣️</div><div style='font-size:1.25rem;font-weight:700;margin-top:6px;"
-           f"color:var(--accent);letter-spacing:.04em'>{html.escape(title)}</div>"
-           f"<div style='font-size:.9rem;margin-top:4px;max-width:400px;margin-inline:auto;color:var(--muted)'>"
+        title, sub = "Awaaz", "Hi! Ask about reminders, tasks, weather or football."
+    return (f"<div style='text-align:center;opacity:.75;padding-top:8vh'>"
+           f"<div style='font-size:1.8rem'>🗣️</div><div style='font-size:1.05rem;font-weight:700;margin-top:6px;"
+           f"color:var(--accent)'>{html.escape(title)}</div>"
+           f"<div style='font-size:.82rem;margin-top:4px;max-width:280px;margin-inline:auto;color:var(--muted)'>"
            f"{html.escape(sub)}</div></div>")
 
 
-def rec_indicator_html() -> str:
-    # Shown only while actively capturing an utterance (state USER_SPEAKING); the calmer
-    # "Listening…"/"Speaking…" states are conveyed by #mic-status instead, not this pulse.
+def voice_orb_html() -> str:
+    """The center hero: a purely client-driven voice-session visual. No Python data — the JS
+    state machine (see JS above) drives every dynamic bit of it (orb glow, wave bars, status
+    pill, mic button state) by id/class, so this only needs to render once."""
     bars = "".join("<i></i>" for _ in range(5))
-    return f'<div id="rec-indicator"><span class="dot"></span><span>Hearing you…</span><span class="bars">{bars}</span></div>'
-
-
-def reticle_html() -> str:
-    """Decorative radar/targeting reticle, echoing the reference image — purely visual."""
-    return """
-<div class="reticle"><svg viewBox="0 0 100 100">
-  <g class="spin">
-    <circle cx="50" cy="50" r="44" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="2 6" opacity=".6"/>
-  </g>
-  <circle cx="50" cy="50" r="32" fill="none" stroke="currentColor" stroke-width="1" opacity=".4"/>
-  <circle cx="50" cy="50" r="20" fill="none" stroke="currentColor" stroke-width="1" opacity=".5"/>
-  <line x1="50" y1="4" x2="50" y2="20" stroke="currentColor" stroke-width="1" opacity=".5"/>
-  <line x1="50" y1="80" x2="50" y2="96" stroke="currentColor" stroke-width="1" opacity=".5"/>
-  <line x1="4" y1="50" x2="20" y2="50" stroke="currentColor" stroke-width="1" opacity=".5"/>
-  <line x1="80" y1="50" x2="96" y2="50" stroke="currentColor" stroke-width="1" opacity=".5"/>
-  <circle cx="50" cy="50" r="3" fill="currentColor"/>
-</svg></div>"""
+    return f"""
+<div class="orb-wrap st-idle" id="voice-orb">
+  <div class="orb-ring ring-1"></div>
+  <div class="orb-ring ring-2"></div>
+  <div class="orb-core"><div class="wave-bars">{bars}</div></div>
+</div>
+<h1 class="brand-title">AWAAZ</h1>
+<div class="status-pill" id="status-pill"><span class="dot"></span><span id="mic-status">Tap the mic to start</span></div>
+<div class="dock">
+  <button class="dock-btn" onclick="awaazFocusComposer()" title="Type instead">{KEYBOARD_SVG}</button>
+  <div class="mic-btn-group" style="display:flex;flex-direction:column;align-items:center;gap:8px;">
+    <button class="dock-btn dock-btn--mic" onclick="awaazMicTap()" title="Tap to talk hands-free">{MIC_SVG}</button>
+    <button id="end-conv-btn" onclick="awaazEndConversation()" title="End the conversation">✕ End</button>
+  </div>
+  <button class="dock-btn" onclick="awaazToggleSidebar()" title="Conversation history">{CLOCK_SVG}</button>
+</div>"""
 
 
 # ── dashboard widgets (pure HTML builders — app.py supplies the data) ───────
 
-def panel(title: str, body_html: str, count: int | str | None = None) -> str:
-    n = f'<span class="n">{count}</span>' if count is not None else ""
-    return f'<div class="hud-panel"><div class="hp-title"><span>{html.escape(title)}</span>{n}</div>{body_html}</div>'
+def panel(title: str, body_html: str, count: int | str | None = None, icon_svg: str = "") -> str:
+    n = f'<span class="count-pill">{html.escape(str(count))}</span>' if count is not None else ""
+    return (f'<div class="card"><div class="card-head"><div class="card-title">{icon_svg}'
+           f'<span>{html.escape(title)}</span></div>{n}</div>{body_html}</div>')
 
 
-def list_items(rows: list[tuple[str, str, str]], empty: str) -> str:
-    """rows = [(title, subtitle, css_class)]; css_class is '', 'due' or 'done'."""
-    if not rows:
-        return f'<ul class="hud-list"><li class="empty">{html.escape(empty)}</li></ul>'
-    lis = "".join(f'<li class="{cls}">{html.escape(title)}<small>{html.escape(sub)}</small></li>'
-                 for title, sub, cls in rows)
-    return f'<ul class="hud-list">{lis}</ul>'
-
-
-def task_table(rows: list[tuple[str, str, str]], empty: str) -> str:
-    """rows = [(title, due_label, css_class)]; css_class is '', 'due' (today/overdue) or 'done'."""
-    if not rows:
-        return f'<div class="hud-table-wrap"><p class="hud-table-empty">{html.escape(empty)}</p></div>'
-    body = "".join(f'<tr class="{cls}"><td>{html.escape(title)}</td><td>{html.escape(due)}</td></tr>'
-                  for title, due, cls in rows)
-    return (f'<div class="hud-table-wrap"><table class="hud-table">'
-           f'<thead><tr><th>Task</th><th>Due</th></tr></thead><tbody>{body}</tbody></table></div>')
-
-
-def _ring(percent: float, r: float) -> tuple[float, float]:
-    """Shared math for an SVG ring gauge: (circumference, dash-offset) for `percent` (0-100) filled."""
-    percent = max(0.0, min(100.0, percent))
-    circumference = 2 * math.pi * r
-    return circumference, circumference * (1 - percent / 100)
-
-
-def progress_ring(label: str, percent: int) -> str:
-    r = 26
-    circumference, offset = _ring(percent, r)
+def system_stats_body(cpu_pct: float, mem_pct: float, mem_used_gb: float, mem_total_gb: float,
+                      disk_used_gb: float, disk_total_gb: float) -> str:
+    cpu_pct, mem_pct = max(0.0, min(100.0, cpu_pct)), max(0.0, min(100.0, mem_pct))
     return f"""
-<div class="hud-ring-row">
-  <svg class="hud-ring" viewBox="0 0 64 64" width="52" height="52">
-    <circle cx="32" cy="32" r="{r}" fill="none" stroke="var(--border)" stroke-width="5"/>
-    <circle cx="32" cy="32" r="{r}" fill="none" stroke="var(--accent)" stroke-width="5" stroke-linecap="round"
-            stroke-dasharray="{circumference:.1f}" stroke-dashoffset="{offset:.1f}" transform="rotate(-90 32 32)"/>
-    <text x="32" y="37" text-anchor="middle" class="hud-ring-text">{percent}%</text>
-  </svg>
-  <span class="hud-ring-label">{html.escape(label)}</span>
+<div class="stat-row">
+  <div class="stat-row-top"><span class="stat-label">CPU Usage</span><span class="stat-value">{cpu_pct:.0f}%</span></div>
+  <div class="bar-track"><div class="bar-fill" style="width:{cpu_pct:.0f}%"></div></div>
+</div>
+<div class="stat-row">
+  <div class="stat-row-top"><span class="stat-label">RAM Usage</span><span class="stat-value">{mem_used_gb:.1f} GB</span></div>
+  <div class="bar-track"><div class="bar-fill" style="width:{mem_pct:.0f}%"></div></div>
+</div>
+<div class="tile-row">
+  <div class="tile"><div class="tile-label">CPU</div><div class="tile-value">{cpu_pct:.0f}%</div></div>
+  <div class="tile"><div class="tile-label">Memory</div><div class="tile-value">{mem_pct:.0f}%</div></div>
+  <div class="tile"><div class="tile-label">Disk</div><div class="tile-value">{disk_used_gb:.0f}/{disk_total_gb:.0f} GB</div></div>
 </div>"""
 
 
-def weather_gauge(temp: str, condition: str, place: str, icon: str = "🌤️") -> str:
-    """A circular dial mapping temp onto a -10..40°C range (clamped); '--'/non-numeric temp -> empty ring."""
-    try:
-        percent = (float(temp) + 10) / 50 * 100
-    except ValueError:
-        percent = 0.0
-    r = 42
-    circumference, offset = _ring(percent, r)
+def weather_body(temp: str, condition: str, place: str, icon_svg: str,
+                 humidity: str = "--", wind: str = "--", feels_like: str = "--") -> str:
     return f"""
-<div class="weather-gauge">
-  <div class="wg-ring-wrap">
-    <svg viewBox="0 0 100 100" class="wg-ring">
-      <circle cx="50" cy="50" r="{r}" fill="none" stroke="var(--border)" stroke-width="6"/>
-      <circle cx="50" cy="50" r="{r}" fill="none" stroke="var(--accent)" stroke-width="6" stroke-linecap="round"
-              stroke-dasharray="{circumference:.1f}" stroke-dashoffset="{offset:.1f}" transform="rotate(-90 50 50)"/>
-    </svg>
-    <div class="wg-center"><span class="wg-icon">{icon}</span><span class="wg-temp">{html.escape(temp)}<small>°C</small></span></div>
+<div class="weather-hero">
+  <div>
+    <div class="weather-temp">{html.escape(temp)}°C</div>
+    <div class="weather-place">{html.escape(place)}</div>
+    <div class="weather-cond">{html.escape(condition)}</div>
   </div>
-  <div class="wg-place">{html.escape(place)}</div>
-  <div class="wg-cond">{html.escape(condition)}</div>
+  <div class="weather-icon">{icon_svg}</div>
+</div>
+<div class="tile-row">
+  <div class="tile"><div class="tile-label">Humidity</div><div class="tile-value">{html.escape(humidity)}</div></div>
+  <div class="tile"><div class="tile-label">Wind</div><div class="tile-value">{html.escape(wind)}</div></div>
+  <div class="tile"><div class="tile-label">Feels Like</div><div class="tile-value">{html.escape(feels_like)}</div></div>
+</div>"""
+
+
+def task_list(rows: list[tuple[str, str, str, bool]], empty: str) -> str:
+    """rows = [(title, tag_text, tag_class, done)]; tag_class is 'due-today'|'overdue'|'due-later'."""
+    if not rows:
+        return f'<div class="list-empty">{html.escape(empty)}</div>'
+    items = []
+    for title, tag_text, tag_class, done in rows:
+        cls = "task-item done" if done else "task-item"
+        tag = "done-tag" if done else tag_class
+        tag_text = "Done" if done else tag_text
+        check = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">'
+                '<path stroke-linecap="round" stroke-linejoin="round" d="M4 12l5 5L20 6"/></svg>') if done else ""
+        items.append(f'<div class="{cls}"><span class="task-check">{check}</span>'
+                    f'<span class="task-text">{html.escape(title)}</span>'
+                    f'<span class="task-tag {tag}">{html.escape(tag_text)}</span></div>')
+    return f'<div class="list">{"".join(items)}</div>'
+
+
+def progress_bar(percent: int, label: str) -> str:
+    percent = max(0, min(100, percent))
+    return (f'<div class="progress-line"><div class="bar-track">'
+           f'<div class="bar-fill" style="width:{percent}%"></div></div>'
+           f'<span>{html.escape(label)}</span></div>')
+
+
+def reminder_list(rows: list[tuple[str, str, str, str, bool]], empty: str) -> str:
+    """rows = [(time_main, time_day, title, meta, due_soon)]."""
+    if not rows:
+        return f'<div class="list-empty">{html.escape(empty)}</div>'
+    items = []
+    for time_main, time_day, title, meta, due_soon in rows:
+        cls = "reminder-item due" if due_soon else "reminder-item"
+        items.append(f'<div class="{cls}"><div class="reminder-time">{html.escape(time_main)}'
+                    f'<span class="day">{html.escape(time_day)}</span></div>'
+                    f'<div class="reminder-body"><div class="reminder-title">{html.escape(title)}</div>'
+                    f'<div class="reminder-meta">{html.escape(meta)}</div></div></div>')
+    return f'<div class="list">{"".join(items)}</div>'
+
+
+def uptime_body(uptime_start_ms: int, uptime_str: str, session_count: int, command_count: int,
+               load_pct: float, load_label: str) -> str:
+    load_pct = max(0.0, min(100.0, load_pct))
+    warn = ' warn' if load_pct >= 60 else ''
+    return f"""
+<div class="uptime-row">
+  <span class="stat-label">System Running For:</span>
+  <span class="uptime-value mono" data-uptime-start="{uptime_start_ms}">{html.escape(uptime_str)}</span>
+</div>
+<div class="tile-row" style="margin-bottom:11px;">
+  <div class="tile"><div class="tile-label">Session</div><div class="tile-value">{session_count}</div></div>
+  <div class="tile"><div class="tile-label">Commands</div><div class="tile-value">{command_count}</div></div>
+  <div class="tile"><div class="tile-label"{' style="color:var(--warn)"' if warn else ''}>Load</div>
+    <div class="tile-value"{' style="color:var(--warn)"' if warn else ''}>{load_pct:.0f}%</div></div>
+</div>
+<div class="stat-row" style="margin-bottom:0;">
+  <div class="stat-row-top"><span class="stat-label">System Load</span>
+    <span class="stat-value"{' style="color:var(--warn)"' if warn else ''}>{html.escape(load_label)} · {load_pct:.0f}%</span></div>
+  <div class="bar-track"><div class="bar-fill{warn}" style="width:{load_pct:.0f}%"></div></div>
 </div>"""

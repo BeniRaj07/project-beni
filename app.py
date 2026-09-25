@@ -13,13 +13,15 @@ from __future__ import annotations
 import logging
 import math
 import time as _time
-from datetime import date, datetime, time as dtime, timezone
+from datetime import date, datetime, time as dtime, timedelta, timezone
+from pathlib import Path
 
 import gradio as gr
+import psutil
 
 import theme
 from assistant.conversation import ConversationState, respond, state_from_conversation, sync_conversation
-from assistant.response_generator import fmt_datetime, fmt_month
+from assistant.response_generator import fmt_month
 from config import settings, setup_logging
 from database.stores import init_stores
 from scheduler.reminder_scheduler import start_scheduler
@@ -34,6 +36,24 @@ log = logging.getLogger("app")
 REMINDER_POLL_SECONDS = 15
 DASHBOARD_POLL_SECONDS = 30
 
+# ── process-lifetime counters for the System Stats / Uptime dashboard cards ──
+# Approximate on purpose: this is a single-user local app (see README §12), not a metrics
+# service, so plain module-level counters (no lock) are the right amount of engineering here.
+_APP_START_EPOCH_S = _time.time()
+_session_count = 0
+_command_count = 0
+psutil.cpu_percent(interval=None)  # warm up: the first real reading needs a prior reference point
+
+
+def _bump_session_count() -> None:
+    global _session_count
+    _session_count += 1
+
+
+def _bump_command_count() -> None:
+    global _command_count
+    _command_count += 1
+
 
 # ── shared turn logic (typed AND voice messages funnel through here) ────────
 
@@ -46,6 +66,7 @@ def _process_turn(user_text: str, chatbot_history: list, conv_id: int | None, st
     """One full turn: echo the user's message, get a reply, optionally speak it.
     Yields (chatbot, conv_id, state, textbox, status, audio, conv_list) every time, so this can be
     used directly as a Gradio generator callback."""
+    _bump_command_count()
     if conv_id is None:
         conv = convo.new_conversation()
         conv_id = conv.id
@@ -222,37 +243,103 @@ def _task_due_label(t, today: date, now_local: datetime, month: str) -> str:
     return t.due_date
 
 
+def _task_tag_class(t, today: date) -> str:
+    if not t.due_date:
+        return "due-later"
+    due = date.fromisoformat(t.due_date)
+    if due < today:
+        return "overdue"
+    if due == today:
+        return "due-today"
+    return "due-later"
+
+
+def _reminder_day_label(d: date, today: date) -> str:
+    if d == today:
+        return "Today"
+    if d == today + timedelta(days=1):
+        return "Tomorrow"
+    return d.strftime("%A")
+
+
+def _reminder_time_12h(dt: datetime) -> str:
+    hour = dt.hour % 12 or 12
+    return f"{hour}:{dt.minute:02d} {'AM' if dt.hour < 12 else 'PM'}"
+
+
+def system_stats_html(cpu_pct: float) -> str:
+    vm = psutil.virtual_memory()
+    disk = psutil.disk_usage(str(Path(settings.data_dir).anchor or "/"))
+    body = theme.system_stats_body(
+        cpu_pct, vm.percent, vm.used / 1e9, vm.total / 1e9, disk.used / 1e9, disk.total / 1e9)
+    return theme.panel("System Stats", body, icon_svg=theme.CPU_SVG)
+
+
+def uptime_html(cpu_pct: float) -> str:
+    elapsed = int(_time.time() - _APP_START_EPOCH_S)
+    h, rem = divmod(elapsed, 3600)
+    m, s = divmod(rem, 60)
+    uptime_str = f"{h:02d}:{m:02d}:{s:02d}"
+    load_label = "High" if cpu_pct >= 70 else ("Moderate" if cpu_pct >= 30 else "Low")
+    body = theme.uptime_body(int(_APP_START_EPOCH_S * 1000), uptime_str, _session_count, _command_count,
+                             cpu_pct, load_label)
+    return theme.panel("System Uptime", body, icon_svg=theme.CLOCK_SVG)
+
+
 def dashboard_panels(state: ConversationState | None):
-    """Read-only HTML for the three side panels. Called on load, every DASHBOARD_POLL_SECONDS,
+    """Read-only HTML for the dashboard cards. Called on load, every DASHBOARD_POLL_SECONDS,
     and after any turn or reminder/task-affecting action so they stay live."""
     today = tasks.today_local()
     now_local = datetime.now(settings.tz)
     rems = reminders.list_reminders()[:8]
-    rem_rows = [(r.title, fmt_datetime(r.local_due) + (f" · repeats {r.recurrence}" if r.recurrence != "none" else ""),
-                "due" if r.local_due.date() == today else "")
+    rem_rows = [(_reminder_time_12h(r.local_due), _reminder_day_label(r.local_due.date(), today), r.title,
+                f"Repeats {r.recurrence}" if r.recurrence != "none" else "One-time",
+                r.local_due.date() == today)
                for r in rems]
-    reminders_html = theme.panel("Reminders", theme.list_items(rem_rows, "No upcoming reminders"), len(rems))
+    reminders_html = theme.panel("Reminders", theme.reminder_list(rem_rows, "No upcoming reminders"),
+                                 len(rems), icon_svg=theme.BELL_SVG)
 
     month = tasks.month_key(today)
     items = tasks.list_tasks(month)[:8]
     prog = tasks.month_progress(month, today)
-    task_rows = [(t.title, _task_due_label(t, today, now_local, month),
-                 "done" if t.status == "completed" else ("due" if t.due_date and t.due_date <= today.isoformat() else ""))
+    task_rows = [(t.title, _task_due_label(t, today, now_local, month), _task_tag_class(t, today),
+                 t.status == "completed")
                 for t in items]
-    tasks_body = theme.task_table(task_rows, "No tasks this month") + theme.progress_ring(fmt_month(month), prog.percent)
-    tasks_html = theme.panel("Tasks", tasks_body, f"{prog.completed}/{prog.total}")
+    tasks_body = theme.task_list(task_rows, "No tasks this month") + theme.progress_bar(
+        prog.percent, f"{prog.completed}/{prog.total} · {fmt_month(month)}")
+    tasks_html = theme.panel("Tasks", tasks_body, f"{prog.completed}/{prog.total}", icon_svg=theme.CHECKLIST_SVG)
 
     city = (state.last_city if state and state.last_city else settings.default_city)
     report, error = _cached_weather(city)
     if report is not None:
-        icon = "🌧️" if report.raining_now else "🌤️"
-        weather_body = theme.weather_gauge(f"{report.temperature:.0f}", weather.describe_code(report.weather_code),
-                                           report.location.name, icon)
+        icon = theme.RAIN_SVG if report.raining_now else theme.CLOUD_SVG
+        humidity = f"{report.humidity:.0f}%" if report.humidity is not None else "--"
+        weather_html_body = theme.weather_body(
+            f"{report.temperature:.0f}", weather.describe_code(report.weather_code), report.location.name, icon,
+            humidity=humidity, wind=f"{report.wind_speed:.1f} km/h", feels_like=f"{report.apparent_temperature:.1f}°C")
     else:
-        weather_body = theme.weather_gauge("--", error or "unavailable", city, "⚠️")
-    weather_html = theme.panel("Weather", weather_body)
+        weather_html_body = theme.weather_body("--", error or "unavailable", city, theme.CLOUD_SVG)
+    weather_html = theme.panel("Weather", weather_html_body, icon_svg=theme.CLOUD_SVG)
 
-    return reminders_html, tasks_html, weather_html
+    # One shared reading: psutil.cpu_percent(interval=None) measures usage since its OWN last
+    # call, so calling it twice back-to-back would make the second reading measure almost no
+    # elapsed time and always come back near 0%.
+    cpu_pct = psutil.cpu_percent(interval=None)
+    return reminders_html, tasks_html, weather_html, system_stats_html(cpu_pct), uptime_html(cpu_pct)
+
+
+def extract_conversation(conv_id: int | None, chatbot_history: list) -> str | None:
+    """Write the current transcript to a text file and hand its path to the DownloadButton that
+    triggered this — Gradio downloads a DownloadButton's new value automatically once its own
+    click handler returns it, so this doubles as both "build" and "download" in one click."""
+    if not chatbot_history:
+        return None
+    lines = [f"{'You' if m['role'] == 'user' else 'Awaaz'}: {m['content']}" for m in chatbot_history]
+    out_dir = settings.data_dir / "exports"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"conversation_{conv_id if conv_id is not None else 'draft'}.txt"
+    path.write_text("\n\n".join(lines), encoding="utf-8")
+    return str(path)
 
 
 # ── layout ───────────────────────────────────────────────────────────────────
@@ -268,12 +355,12 @@ def build_ui() -> gr.Blocks:
         # Created here (not yet placed) so the sidebar's event handlers, defined below, can target
         # them; `.render()` places each one in the dashboard further down.
         chatbot = gr.Chatbot(elem_id="chatbot", show_label=False, buttons=["copy"],
-                             placeholder=theme.welcome_html(), render=False)
+                             placeholder=theme.conversation_welcome_html(), render=False)
         status_line = gr.Markdown("", elem_id="status-line", render=False)
         audio_out = gr.Audio(autoplay=True, show_label=False, interactive=False,
                             elem_classes="audio-container", render=False)
         stop_audio_btn = gr.Button("⏹ Stop", elem_id="stop-audio-btn", visible=False, size="sm", render=False)
-        text_in = gr.Textbox(placeholder="Message Awaaz…", show_label=False, elem_id="composer-input",
+        text_in = gr.Textbox(placeholder="Type a message…", show_label=False, elem_id="composer-input",
                              container=False, scale=8, lines=1, max_lines=6, render=False)
         send_btn = gr.Button("➤", elem_id="send-btn", scale=0, render=False)
         # No file_types filter: the browser's extension→MIME lookup classifies
@@ -281,7 +368,9 @@ def build_ui() -> gr.Blocks:
         mic_upload = gr.File(elem_id="mic-upload", render=False)
         reminders_panel = gr.HTML(render=False)
         tasks_panel = gr.HTML(render=False)
-        weather_panel = gr.HTML(render=False)
+        weather_panel = gr.HTML(elem_id="weather-card", render=False)
+        sys_stats_panel = gr.HTML(render=False)
+        uptime_panel = gr.HTML(render=False)
 
         with gr.Column(elem_id="app-root"):
             gr.HTML(theme.topbar_html())
@@ -329,36 +418,39 @@ def build_ui() -> gr.Blocks:
                                         container=False, elem_id="mic-lang",
                                         info="🎤 Speech language (fixes mis-transcribed Nepali)")
 
-            # ── dashboard: reminders | chat screen | tasks + weather ──────
+            # ── dashboard: live cards | voice orb | conversation ──────────
             with gr.Row(elem_id="dashboard"):
-                reminders_panel.render()
+                with gr.Column(elem_id="left-rail"):
+                    sys_stats_panel.render()
+                    weather_panel.render()
+                    tasks_panel.render()
+                    reminders_panel.render()
+                    uptime_panel.render()
 
                 with gr.Column(elem_id="center-screen"):
-                    chatbot.render()
-                    status_line.render()
-                    gr.HTML(theme.rec_indicator_html())
-                    gr.HTML('<div id="mic-status"></div>')
+                    gr.HTML(theme.voice_orb_html())
                     with gr.Row(elem_id="audio-row"):
                         audio_out.render()
                         stop_audio_btn.render()
-                    with gr.Column(elem_id="composer-wrap"):
-                        gr.HTML(theme.reticle_html())
-                        with gr.Row(elem_id="composer"):
-                            gr.HTML('<div class="mic-btn-group">'
-                                    '<button class="mic-btn" onclick="awaazMicTap()" title="Tap to talk hands-free">🎤</button>'
-                                    '<button id="end-conv-btn" onclick="awaazEndConversation()" '
-                                    'style="display:none" title="End the conversation">✕ End</button></div>')
-                            text_in.render()
-                            send_btn.render()
                     mic_upload.render()
 
                 with gr.Column(elem_id="right-rail"):
-                    tasks_panel.render()
-                    weather_panel.render()
+                    with gr.Row(elem_id="convo-head"):
+                        gr.HTML("<h2>Conversation</h2>")
+                        with gr.Row(elem_id="convo-actions"):
+                            clear_btn = gr.Button("🗑 Clear", elem_classes="chip-btn", size="sm")
+                            extract_btn = gr.DownloadButton("⬇ Extract Conversation", elem_id="extract-btn",
+                                                            elem_classes="chip-btn", size="sm")
+                    chatbot.render()
+                    status_line.render()
+                    with gr.Column(elem_id="composer-wrap"):
+                        with gr.Row(elem_id="composer"):
+                            text_in.render()
+                            send_btn.render()
 
         # ── events ───────────────────────────────────────────────────────
         turn_outputs = [chatbot, active_id, convo_state, text_in, status_line, audio_out, conv_list]
-        dashboard_outputs = [reminders_panel, tasks_panel, weather_panel]
+        dashboard_outputs = [reminders_panel, tasks_panel, weather_panel, sys_stats_panel, uptime_panel]
 
         text_in.submit(text_turn, [text_in, chatbot, active_id, convo_state, autoplay_cb], turn_outputs
                        ).then(dashboard_panels, convo_state, dashboard_outputs)
@@ -369,6 +461,8 @@ def build_ui() -> gr.Blocks:
                          ).then(dashboard_panels, convo_state, dashboard_outputs)
 
         new_chat_btn.click(start_new_chat, outputs=[chatbot, active_id, convo_state, text_in])
+        clear_btn.click(start_new_chat, outputs=[chatbot, active_id, convo_state, text_in])
+        extract_btn.click(extract_conversation, [active_id, chatbot], extract_btn)
         search_box.input(lambda q: q, search_box, search_q)
 
         rename_save.click(save_rename, [rename_id, rename_box], [rename_id, rename_box, conv_list]
@@ -388,6 +482,7 @@ def build_ui() -> gr.Blocks:
         gr.Timer(DASHBOARD_POLL_SECONDS).tick(dashboard_panels, convo_state, dashboard_outputs)
 
         demo.load(lambda: convo.list_conversations(), outputs=conv_list
+                 ).then(_bump_session_count
                  ).then(dashboard_panels, convo_state, dashboard_outputs)
     return demo
 

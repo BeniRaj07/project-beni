@@ -82,6 +82,7 @@ class WeatherReport:
     showers: float
     weather_code: int
     wind_speed: float
+    humidity: float | None
     daily: list[DailyForecast]
     rest_of_today_rain_probability: int | None
     fetched_at: datetime
@@ -128,7 +129,8 @@ def get_weather_report(city: str) -> WeatherReport | None:
     def fetch():
         return get_json("Open-Meteo", FORECAST_URL, params={
             "latitude": loc.latitude, "longitude": loc.longitude,
-            "current": "temperature_2m,apparent_temperature,precipitation,rain,showers,weather_code,wind_speed_10m",
+            "current": "temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,rain,showers,"
+                      "weather_code,wind_speed_10m",
             "hourly": "precipitation_probability",
             "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max",
             "timezone": "auto", "forecast_days": 7, "wind_speed_unit": "kmh",
@@ -166,7 +168,9 @@ def _parse_report(loc: Location, data: dict) -> WeatherReport:
         temperature=float(cur["temperature_2m"]), apparent_temperature=float(cur["apparent_temperature"]),
         precipitation=float(cur.get("precipitation") or 0), rain=float(cur.get("rain") or 0),
         showers=float(cur.get("showers") or 0), weather_code=int(cur["weather_code"]),
-        wind_speed=float(cur["wind_speed_10m"]), daily=daily,
+        wind_speed=float(cur["wind_speed_10m"]),
+        humidity=float(cur["relative_humidity_2m"]) if cur.get("relative_humidity_2m") is not None else None,
+        daily=daily,
         rest_of_today_rain_probability=max(rest) if rest else None,
         fetched_at=datetime.now(settings.tz),
     )

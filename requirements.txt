@@ -14,6 +14,7 @@ apscheduler>=3.10,<4       # APScheduler 4 has a different API
 requests>=2.31
 python-dotenv>=1.0
 tzdata>=2024.1             # timezone database (needed on Windows for zoneinfo)
+psutil>=5.9                # CPU/RAM/disk figures for the System Stats dashboard card
 
 # Tests
 pytest>=8.0
