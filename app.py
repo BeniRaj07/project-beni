@@ -11,8 +11,9 @@ Run:  python app.py      then open http://127.0.0.1:7860
 from __future__ import annotations
 
 import logging
+import math
 import time as _time
-from datetime import datetime, timezone
+from datetime import date, datetime, time as dtime, timezone
 
 import gradio as gr
 
@@ -206,10 +207,26 @@ def _cached_weather(city: str):
     return report, error
 
 
+def _task_due_label(t, today: date, now_local: datetime, month: str) -> str:
+    """'in Xh' for anything due today (due_date carries no time of its own, so end-of-day stands in
+    for the deadline), 'overdue' once past, else the plain date — or the month, if there's no due date."""
+    if not t.due_date:
+        return fmt_month(month)
+    due = date.fromisoformat(t.due_date)
+    if due < today:
+        return "overdue"
+    if due == today:
+        end_of_day = datetime.combine(due, dtime(23, 59), tzinfo=now_local.tzinfo)
+        hours_left = max(1, math.ceil((end_of_day - now_local).total_seconds() / 3600))
+        return f"in {hours_left}h"
+    return t.due_date
+
+
 def dashboard_panels(state: ConversationState | None):
     """Read-only HTML for the two side panels. Called on load, every DASHBOARD_POLL_SECONDS,
     and after any turn or reminder/task-affecting action so they stay live."""
     today = tasks.today_local()
+    now_local = datetime.now(settings.tz)
     rems = reminders.list_reminders()[:8]
     rem_rows = [(r.title, fmt_datetime(r.local_due) + (f" · repeats {r.recurrence}" if r.recurrence != "none" else ""),
                 "due" if r.local_due.date() == today else "")
@@ -219,10 +236,10 @@ def dashboard_panels(state: ConversationState | None):
     month = tasks.month_key(today)
     items = tasks.list_tasks(month)[:8]
     prog = tasks.month_progress(month, today)
-    task_rows = [(t.title, ("due " + t.due_date if t.due_date else fmt_month(month)),
-                 "done" if t.status == "completed" else ("due" if t.due_date and t.due_date < today.isoformat() else ""))
+    task_rows = [(t.title, _task_due_label(t, today, now_local, month),
+                 "done" if t.status == "completed" else ("due" if t.due_date and t.due_date <= today.isoformat() else ""))
                 for t in items]
-    tasks_body = theme.list_items(task_rows, "No tasks this month") + theme.progress_bar(fmt_month(month), prog.percent)
+    tasks_body = theme.task_table(task_rows, "No tasks this month") + theme.progress_bar(fmt_month(month), prog.percent)
 
     city = (state.last_city if state and state.last_city else settings.default_city)
     report, error = _cached_weather(city)

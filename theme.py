@@ -132,6 +132,18 @@ code, .mono { font-family: 'Share Tech Mono', monospace !important; }
 .hud-progress-label { font-family: 'Share Tech Mono', monospace; font-size: .68rem; color: var(--muted);
   display: flex; justify-content: space-between; }
 
+.hud-table-wrap { flex: 1 1 auto; overflow-y: auto; min-height: 0; }
+.hud-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+.hud-table th { text-align: left; font-family: 'Share Tech Mono', monospace; font-size: .62rem;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 400;
+  padding: 0 4px 6px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface); }
+.hud-table td { padding: 6px 4px; border-bottom: 1px solid rgba(47,230,200,.08); color: var(--text); vertical-align: top; }
+.hud-table td:last-child { font-family: 'Share Tech Mono', monospace; font-size: .74rem; color: var(--muted);
+  white-space: nowrap; text-align: right; }
+.hud-table tr.due td:last-child { color: var(--warn); font-weight: 600; }
+.hud-table tr.done td:first-child { opacity: .55; text-decoration: line-through; }
+.hud-table-empty { color: var(--muted); font-style: italic; font-size: .84rem; padding: 4px 2px; margin: 0; }
+
 .weather-card { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
 .weather-card .wc-temp { font-family: 'Share Tech Mono', monospace; font-size: 1.9rem; color: var(--accent);
   text-shadow: 0 0 12px rgba(47,230,200,.5); line-height: 1; }
@@ -195,11 +207,10 @@ code, .mono { font-family: 'Share Tech Mono', monospace !important; }
 
 #mic-upload { position: absolute !important; left: -9999px !important; width: 1px !important; height: 1px !important;
   overflow: hidden !important; }
-#audio-row { max-width: 720px; margin: 0 auto; padding: 0 20px; display: flex; align-items: center; gap: 8px; z-index: 1; position: relative; }
-#audio-row .audio-container { flex: 1; }
-#stop-audio-btn { min-width: 84px !important; height: 34px; border-radius: 8px !important;
-  background: rgba(239,68,68,.12) !important; border: 1px solid rgba(239,68,68,.4) !important;
-  color: #fca5a5 !important; font-size: .8rem !important; }
+/* The reply is spoken, not watched: keep the <audio> element mounted (autoplay still fires) but hide
+   its waveform/scrubber/Stop-button chrome entirely. Speaking into the mic (see JS) interrupts it. */
+#audio-row { position: absolute !important; left: -9999px !important; width: 1px !important; height: 1px !important;
+  overflow: hidden !important; }
 
 /* ── sidebar drawer (off-canvas on every screen size) ──── */
 #sidebar { position: fixed; z-index: 50; left: 0; top: 0; bottom: 0; width: 300px; max-width: 82vw;
@@ -336,7 +347,15 @@ JS = r"""
     setStatus("Recording " + m + ":" + s + " — tap the mic again to send");
   }
 
+  // ── barge-in: talking to Awaaz always interrupts whatever it's currently saying ──
+  function stopSpeaking() {
+    document.querySelectorAll("#audio-row audio").forEach(function (a) {
+      try { a.pause(); a.currentTime = 0; } catch (e) {}
+    });
+  }
+
   async function startRecording() {
+    stopSpeaking();
     try {
       REC.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
     } catch (e) {
@@ -472,6 +491,16 @@ def list_items(rows: list[tuple[str, str, str]], empty: str) -> str:
     lis = "".join(f'<li class="{cls}">{html.escape(title)}<small>{html.escape(sub)}</small></li>'
                  for title, sub, cls in rows)
     return f'<ul class="hud-list">{lis}</ul>'
+
+
+def task_table(rows: list[tuple[str, str, str]], empty: str) -> str:
+    """rows = [(title, due_label, css_class)]; css_class is '', 'due' (today/overdue) or 'done'."""
+    if not rows:
+        return f'<div class="hud-table-wrap"><p class="hud-table-empty">{html.escape(empty)}</p></div>'
+    body = "".join(f'<tr class="{cls}"><td>{html.escape(title)}</td><td>{html.escape(due)}</td></tr>'
+                  for title, due, cls in rows)
+    return (f'<div class="hud-table-wrap"><table class="hud-table">'
+           f'<thead><tr><th>Task</th><th>Due</th></tr></thead><tbody>{body}</tbody></table></div>')
 
 
 def progress_bar(label: str, percent: int) -> str:
