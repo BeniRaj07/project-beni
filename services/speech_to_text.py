@@ -80,6 +80,7 @@ def transcribe(audio_path: str | None, language_hint: str | None = None) -> Tran
         if type(e).__module__.startswith("groq"):
             err = _translate_error(e)
             raise STTError(err.user_message) from e
+        log.exception("stt_unexpected_error", extra={"error_type": type(e).__name__})
         raise STTError("transcription failed unexpectedly") from e
 
     text = (getattr(result, "text", "") or "").strip()

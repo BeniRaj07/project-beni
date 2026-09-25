@@ -16,7 +16,9 @@ log = logging.getLogger(__name__)
 @lru_cache(maxsize=1)
 def get_groq_client():
     from groq import Groq  # imported lazily so tests don't need network access or keys
-    return Groq(api_key=require_key(settings.groq_api_key, "GROQ_API_KEY"), timeout=30, max_retries=2)
+    # A slow/hung request used to cost up to 90s (30s timeout x 3 attempts) before the user saw
+    # any error; both STT and LLM calls share this client, so that latency hit every turn.
+    return Groq(api_key=require_key(settings.groq_api_key, "GROQ_API_KEY"), timeout=15, max_retries=1)
 
 
 def _is_groq_error(e: Exception) -> bool:

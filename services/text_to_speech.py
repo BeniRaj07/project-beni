@@ -92,8 +92,10 @@ def _gemini_client():
     return genai.Client(api_key=require_key(settings.gemini_api_key, "GEMINI_API_KEY"))
 
 
-def generate_with_retry(model, contents, max_retries=4, **kwargs):
-    """Original retry helper: back off on 503, fail fast on quota (429) errors."""
+def generate_with_retry(model, contents, max_retries=2, **kwargs):
+    """Original retry helper: back off on 503, fail fast on quota (429) errors.
+    Kept low so a struggling Gemini falls through to the next TTS engine quickly instead of
+    burning 15s of backoff (1+2+4+8s) on a call whose reply is already spoken as text."""
     for attempt in range(max_retries):
         try:
             return _gemini_client().models.generate_content(model=model, contents=contents, **kwargs)

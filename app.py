@@ -65,8 +65,14 @@ def _process_turn(user_text: str, chatbot_history: list, conv_id: int | None, st
     sync_conversation(conv_id, state)
 
     chatbot_history = chatbot_history + [{"role": "assistant", "content": reply_text}]
+    will_speak = bool(spoken and (force_speak or autoplay))
+    # Show the text reply now instead of making the user wait through TTS (and its fallback
+    # chain) before seeing anything — the audio player is filled in by the next yield.
+    yield (chatbot_history, conv_id, state, "", "🔊 Generating voice reply…" if will_speak else "",
+          gr.skip(), convo.list_conversations())
+
     audio_path = None
-    if spoken and (force_speak or autoplay):
+    if will_speak:
         try:
             audio_path = str(synthesize(spoken, reply_lang))
         except TTSError as e:
