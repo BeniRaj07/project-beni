@@ -75,7 +75,7 @@ def chat_text(messages: list[dict[str, str]], *, max_tokens: int = 1500) -> str:
         raise
     except Exception as e:  # noqa: BLE001 - translated into a user-safe error
         if _is_claude_error(e):
-            log.warning("claude_error", extra={"error": type(e).__name__})
+            log.warning("claude_error", extra={"error": type(e).__name__, "detail": str(e)})
             raise _translate_claude_error(e) from e
         raise
     text = "".join(b.text for b in resp.content if b.type == "text").strip()
@@ -115,6 +115,7 @@ def chat_json(messages: list[dict[str, str]], *, max_tokens: int = 1500) -> dict
         except Exception as e:  # noqa: BLE001
             if not _is_claude_error(e):
                 raise
+            log.warning("claude_error", extra={"error": type(e).__name__, "detail": str(e)})
             raise _translate_claude_error(e) from e
         attempts += 1
         text = "".join(b.text for b in resp.content if b.type == "text")
