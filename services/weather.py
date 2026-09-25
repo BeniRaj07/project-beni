@@ -96,26 +96,50 @@ class WeatherReport:
         return next((d for d in self.daily if d.day == day), None)
 
 
+# Nepal place names that get spoken or typed as the spelling of a more internationally famous
+# namesake elsewhere - most often because the two sound alike ("Udaipur" for the Nepali
+# "Udayapur", a real district, vs. the much larger Udaipur, Rajasthan that otherwise wins any
+# population-ranked search). Only consulted as a fallback, after a plain search for the term as
+# given turns up no Nepal match, so it never overrides a query that already resolves correctly.
+NEPAL_NAME_ALIASES = {
+    "udaipur": "Udayapur",
+}
+
+
+def _geocode_search(name: str) -> list[dict] | None:
+    data = get_json("Open-Meteo geocoding", GEOCODE_URL,
+                    params={"name": name, "count": 10, "language": "en", "format": "json"})
+    return data.get("results") if isinstance(data, dict) else None
+
+
+def _to_location(r: dict) -> Location:
+    try:
+        return Location(name=r["name"], country=r.get("country", ""), admin1=r.get("admin1", ""),
+                        latitude=float(r["latitude"]), longitude=float(r["longitude"]))
+    except (KeyError, TypeError, ValueError) as e:
+        raise ServiceError("Open-Meteo geocoding", "returned an unexpected location format") from e
+
+
 def geocode(city: str) -> Location | None:
     city = (city or "").strip()
     if not city:
         return None
 
     def fetch():
-        data = get_json("Open-Meteo geocoding", GEOCODE_URL,
-                        params={"name": city, "count": 5, "language": "en", "format": "json"})
-        results = data.get("results") if isinstance(data, dict) else None
+        results = _geocode_search(city)
         if not results:
             return None
         # This is a Nepal-focused assistant, so a bare city name ("Itahari", "Birgunj") should
         # resolve there even if Open-Meteo's population-ranked top hit is a same-named place
-        # elsewhere; fall back to its top result when no Nepal match is among the candidates.
-        r = next((x for x in results if x.get("country") == "Nepal"), results[0])
-        try:
-            return Location(name=r["name"], country=r.get("country", ""), admin1=r.get("admin1", ""),
-                            latitude=float(r["latitude"]), longitude=float(r["longitude"]))
-        except (KeyError, TypeError, ValueError) as e:
-            raise ServiceError("Open-Meteo geocoding", "returned an unexpected location format") from e
+        # elsewhere; a wider count (10, not just the top few) gives a real Nepal match more room
+        # to show up before falling back to a known-alias retry, and then to the top result.
+        nepal_match = next((x for x in results if x.get("country") == "Nepal"), None)
+        if nepal_match is None:
+            alias = NEPAL_NAME_ALIASES.get(city.lower())
+            if alias:
+                alias_results = _geocode_search(alias) or []
+                nepal_match = next((x for x in alias_results if x.get("country") == "Nepal"), None)
+        return _to_location(nepal_match or results[0])
 
     return _cache.get_or_set(("geo", city.lower()), 24 * 3600, fetch)
 

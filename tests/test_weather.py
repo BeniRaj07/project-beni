@@ -85,6 +85,45 @@ def test_geocoding_prefers_nepal_match_over_top_ranked_foreign_namesake(monkeypa
     assert rep.location.country == "Nepal" and rep.location.name == "Birgunj"
 
 
+def test_geocoding_falls_back_to_known_alias_when_plain_name_has_no_nepal_match(monkeypatch):
+    udaipur_india = {"results": [
+        {"name": "Udaipur", "country": "India", "admin1": "Rajasthan", "latitude": 24.58, "longitude": 73.68},
+    ]}
+    udayapur_nepal = {"results": [
+        {"name": "Udayapur", "country": "Nepal", "admin1": "Koshi Province", "latitude": 26.86, "longitude": 86.55},
+    ]}
+    calls = []
+
+    def fake_get_json(service, url, params=None, headers=None, timeout=None):
+        if "geocoding" in url:
+            calls.append(params["name"])
+            return udayapur_nepal if params["name"] == "Udayapur" else udaipur_india
+        return forecast_payload()
+
+    monkeypatch.setattr(weather, "get_json", fake_get_json)
+    rep = weather.get_weather_report("Udaipur")
+    assert rep.location.country == "Nepal" and rep.location.name == "Udayapur"
+    assert calls == ["Udaipur", "Udayapur"]  # plain name tried first, alias only as a fallback
+
+
+def test_geocoding_alias_not_used_when_plain_name_already_resolves_in_nepal(monkeypatch):
+    already_nepal = {"results": [
+        {"name": "Udaipur", "country": "Nepal", "admin1": "Madhesh Province", "latitude": 26.6, "longitude": 85.9},
+    ]}
+    calls = []
+
+    def fake_get_json(service, url, params=None, headers=None, timeout=None):
+        if "geocoding" in url:
+            calls.append(params["name"])
+            return already_nepal
+        return forecast_payload()
+
+    monkeypatch.setattr(weather, "get_json", fake_get_json)
+    rep = weather.get_weather_report("Udaipur")
+    assert rep.location.country == "Nepal"
+    assert calls == ["Udaipur"]  # no alias retry needed - the plain search already found Nepal
+
+
 def test_malformed_weather_response_raises_service_error(monkeypatch):
     patch_api(monkeypatch, forecast={"current": {"time": "2026-09-24T14:00"}})   # missing fields
     with pytest.raises(ServiceError):
