@@ -111,12 +111,12 @@ code, .mono { font-family: 'Share Tech Mono', monospace !important; }
 #dashboard { position: relative; z-index: 1; flex: 1 1 auto; min-height: 0; display: grid;
   grid-template-columns: 240px 1fr 260px; gap: 14px; padding: 14px 16px 10px; }
 @media (max-width: 1100px) { #dashboard { grid-template-columns: 1fr; grid-template-rows: auto auto auto 1fr; } }
-#right-rail { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+#right-rail { display: flex; flex-direction: column; gap: 14px; min-height: 0; min-width: 0; }
 #right-rail > div:first-child { flex: 1 1 auto; min-height: 0; }
 #right-rail > div:last-child { flex: none; }
 
 .hud-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
-  padding: 12px 13px; display: flex; flex-direction: column; min-height: 0;
+  padding: 12px 13px; display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden;
   clip-path: polygon(0 0,calc(100% - 16px) 0,100% 16px,100% 100%,16px 100%,0 calc(100% - 16px));
   box-shadow: 0 0 26px rgba(47,230,200,.06) inset; backdrop-filter: blur(6px); }
 .hud-panel .hp-title { font-size: .72rem; font-weight: 700; letter-spacing: .16em; color: var(--accent);
@@ -137,14 +137,17 @@ code, .mono { font-family: 'Share Tech Mono', monospace !important; }
 .hud-ring-text { font-family: 'Share Tech Mono', monospace; font-size: 13px; fill: var(--accent); }
 .hud-ring-label { font-size: .78rem; color: var(--muted); }
 
-.hud-table-wrap { flex: 1 1 auto; overflow-y: auto; min-height: 0; }
-.hud-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+.hud-table-wrap { flex: 1 1 auto; overflow: hidden auto; min-height: 0; max-width: 100%; }
+.hud-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: .82rem; }
 .hud-table th { text-align: left; font-family: 'Share Tech Mono', monospace; font-size: .62rem;
   letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 400;
   padding: 0 4px 6px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface); }
-.hud-table td { padding: 6px 4px; border-bottom: 1px solid rgba(47,230,200,.08); color: var(--text); vertical-align: top; }
+.hud-table th:first-child, .hud-table td:first-child { width: 62%; }
+.hud-table th:last-child, .hud-table td:last-child { width: 38%; }
+.hud-table td { padding: 6px 4px; border-bottom: 1px solid rgba(47,230,200,.08); color: var(--text);
+  vertical-align: top; overflow-wrap: break-word; }
 .hud-table td:last-child { font-family: 'Share Tech Mono', monospace; font-size: .74rem; color: var(--muted);
-  white-space: nowrap; text-align: right; }
+  text-align: right; }
 .hud-table tr.due td:last-child { color: var(--warn); font-weight: 600; }
 .hud-table tr.done td:first-child { opacity: .55; text-decoration: line-through; }
 .hud-table-empty { color: var(--muted); font-style: italic; font-size: .84rem; padding: 4px 2px; margin: 0; }
