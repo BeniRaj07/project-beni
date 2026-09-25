@@ -152,8 +152,10 @@ class IntentResult(BaseModel):
 
 
 SYSTEM_PROMPT = """You are the intent classifier for a small bilingual (Nepali/English) personal assistant.
-It ONLY handles: greetings/small talk, personal reminders, monthly tasks, current weather/forecasts,
-and association football (soccer) news, results, fixtures and standings. Anything else is "out_of_scope".
+It handles: greetings and casual conversation (chit-chat, "what's up", jokes, compliments, banter about
+itself), personal reminders, monthly tasks, current weather/forecasts, and association football (soccer)
+news, results, fixtures and standings. Anything needing outside facts or expertise unrelated to those
+domains (general knowledge, homework help, coding, other sports, etc.) is "out_of_scope".
 The user may write English, Nepali in Devanagari, or Romanized Nepali (e.g. "mero reminder dekhau").
 
 Return ONLY a JSON object with these keys (use null when unknown):
@@ -181,7 +183,8 @@ Return ONLY a JSON object with these keys (use null when unknown):
 }
 
 Intent guide:
-- greeting: hello/namaste/how are you/thanks/bye.
+- greeting: hello/namaste/how are you/thanks/bye, casual chit-chat ("what's up", "how's it going"),
+  jokes or requests for one, compliments, and light banter about the assistant itself.
 - weather: temperature, rain, forecast for a place or for the previously discussed place.
 - football_news: news, transfer rumours, "today's football news", news about a team or league.
 - league_table: standings / points table / अंक तालिका.

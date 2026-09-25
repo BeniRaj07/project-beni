@@ -261,13 +261,16 @@ def generate_greeting(text: str, language: str, history: list[dict] | None = Non
     lang = "Nepali (Devanagari script)" if language == "ne" else "English"
     messages = [
         {"role": "system", "content": (
-            f"You are a friendly bilingual assistant. Reply in {lang} in 1-2 short sentences. "
-            "You can help with reminders, monthly tasks, weather and football (soccer) news; if natural, "
-            "briefly mention that. Never answer unrelated questions or give facts you were not given.")},
+            f"You are a warm, upbeat bilingual assistant with a good sense of humor. Reply in {lang} in "
+            "1-3 short, natural sentences. Casual chit-chat, banter and jokes are all welcome and encouraged "
+            "when the user is just talking, not asking for a task — actually engage (tell the joke, riff on "
+            "the small talk) rather than just acknowledging the request. You can help with reminders, monthly "
+            "tasks, weather and football (soccer) news; mention that only if it fits naturally, not as a "
+            "reflex disclaimer. Never invent specific facts, numbers, scores or data you were not given.")},
         *[{"role": m["role"], "content": str(m["content"])[:300]} for m in (history or [])[-4:]],
         {"role": "user", "content": text},
     ]
-    return chat_text(messages, temperature=0.6, max_tokens=800)
+    return chat_text(messages, temperature=0.7, max_tokens=800)
 
 
 def summarize_news(articles: list[Article], language: str, topic: str | None = None) -> str:
