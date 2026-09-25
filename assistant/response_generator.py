@@ -7,6 +7,7 @@ used only for small talk and for summarising news articles that are passed to it
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
 
@@ -150,6 +151,24 @@ def format_task_line(tk: Task, language: str = "en", today: date | None = None) 
     return f"- {mark} {tk.title}{due}{repeat}"
 
 
+# Units/symbols a TTS voice tends to skip or mispronounce if read literally (e.g. "93%" said as
+# just "93", "°C" swallowed or read as a stray letter). Anchored on the digit right before the
+# unit so only real measurements are expanded, never incidental "%"/"mm" elsewhere in a reply.
+_UNIT_SPEECH = {
+    "en": [(re.compile(r"(\d)°C"), r"\1 degrees Celsius"), (re.compile(r"(\d)\s*km/h"), r"\1 kilometers per hour"),
+          (re.compile(r"(\d)\s*mm\b"), r"\1 millimeters"), (re.compile(r"(\d)%"), r"\1 percent")],
+    "ne": [(re.compile(r"(\d)°C"), r"\1 डिग्री सेल्सियस"), (re.compile(r"(\d)\s*km/h"), r"\1 किलोमिटर प्रति घण्टा"),
+          (re.compile(r"(\d)\s*mm\b"), r"\1 मिलिमिटर"), (re.compile(r"(\d)%"), r"\1 प्रतिशत")],
+}
+
+
+def speak_units(text: str, language: str) -> str:
+    """Expand unit symbols into words for the TTS-bound copy of a reply (visible text keeps the symbols)."""
+    for pattern, repl in _UNIT_SPEECH.get(language, _UNIT_SPEECH["en"]):
+        text = pattern.sub(repl, text)
+    return text
+
+
 def format_weather(rep: WeatherReport, language: str, target: date | None, today_local: date) -> tuple[str, str]:
     """Returns (display text, spoken text). Current conditions and forecasts are kept visibly separate."""
     ne = language == "ne"
@@ -196,7 +215,7 @@ def format_weather(rep: WeatherReport, language: str, target: date | None, today
                           else f"☀️ Rain is unlikely ({prob or 0}% chance)."))
         lines.append("_यो पूर्वानुमान हो, हालको अवस्था होइन।_" if ne else "_This is a forecast, not current conditions._")
     display = "\n\n".join(lines)
-    return display, display
+    return display, speak_units(display, language)
 
 
 def format_matches(matches: list[Match], tz, language: str = "en") -> str:
