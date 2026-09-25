@@ -21,10 +21,13 @@ A single, minimal ChatGPT-style screen:
   Click a conversation to reopen it with its full history and context; hover a row to rename (✏️)
   or delete (🗑️) it. Collapses into a slide-out drawer on narrow screens.
 - **Main chat column** — a plain conversation: your messages, the assistant's replies, a welcome
-  message on a fresh chat, a subtle "Awaaz is thinking…" line while it works, and a spoken-reply
-  player with a **Stop** button. A composer at the bottom has a text box, a **Send** button, and a
-  round 🎤 **mic button**: tap once to start recording (it pulses and shows a live level meter),
-  tap again to send — no separate record/stop screen.
+  message on a fresh chat, a subtle status line ("Listening…", "Hearing you…", "Thinking…",
+  "Speaking…") while it works, and a spoken-reply player with a **Stop** button. A composer at the
+  bottom has a text box, a **Send** button, and a round 🎤 **mic button**: tap once for one
+  microphone permission prompt and a continuous, hands-free voice session — it keeps listening the
+  entire time, including while Awaaz is talking, so starting to speak over it interrupts
+  immediately (no button press, no waiting for it to finish). Tap the mic again, or **End**, to
+  stop and release the microphone.
 
 Dark by default; a 🌓 toggle in the sidebar switches to light. No intent JSON, API responses or
 debugging information is ever shown — only the final conversational answer.
@@ -286,6 +289,15 @@ in case the venue Wi-Fi blocks the APIs.
 * Free tiers: NewsAPI articles are delayed and localhost-only; Football-Data.org scores may be delayed
   and live scores may be unavailable.
 * The mic button needs one browser permission prompt for the microphone the first time you use it.
+* Barge-in (talking over Awaaz to interrupt it) relies on the browser's own echo cancellation to
+  tell your voice apart from the assistant's own speaker output; on a laptop with a mic close to
+  its speakers, or in a noisy room, this can occasionally misfire. **Headphones (even basic wired
+  ones) remove the ambiguity entirely** and are recommended for the most reliable barge-in.
+* Interruption is instant and fully reliable client-side (playback is stopped, muted and never
+  resumes — verified by automated tests), but an in-flight Groq/Gemini API call for an interrupted
+  turn keeps running to completion on the server; only its result is guaranteed never to be shown
+  or spoken once superseded, since Gradio's synchronous handlers don't expose a way to cancel that
+  request mid-flight.
 
 ## 12. Security & privacy
 

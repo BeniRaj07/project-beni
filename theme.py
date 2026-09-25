@@ -1,9 +1,11 @@
 """A sci-fi "circuit-board" HUD look: dark teal-on-black theme, CSS, and the small amount of
-client-side JavaScript the UI genuinely needs (a hands-free conversation-mode mic recorder with
-silence detection and barge-in, a live clock, a dark/light toggle, and an off-canvas conversation
-drawer). Sending, replying, playing audio and the conversation list are plain Gradio, driven from
-Python in app.py; this module only builds the look and a handful of pure-HTML dashboard widgets
-(reminders/tasks/weather cards) from data app.py hands it.
+client-side JavaScript the UI genuinely needs — most notably a continuous voice-session state
+machine (LISTENING/USER_SPEAKING/PROCESSING/ASSISTANT_SPEAKING) driven by a persistent, always-on
+VAD loop, so talking over Awaaz while it's speaking interrupts it instantly with no button press —
+plus a live clock, a dark/light toggle, and an off-canvas conversation drawer. Sending, replying,
+playing audio and the conversation list are plain Gradio, driven from Python in app.py; this
+module only builds the look and a handful of pure-HTML dashboard widgets (reminders/tasks/weather
+cards) from data app.py hands it.
 """
 from __future__ import annotations
 
@@ -203,6 +205,13 @@ code, .mono { font-family: 'Share Tech Mono', monospace !important; }
   color: #ef4444 !important; animation: mic-pulse 1.1s ease-in-out infinite; }
 .mic-btn.recording::after { border-color: rgba(239,68,68,.5); }
 @keyframes mic-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,.45) } 50% { box-shadow: 0 0 0 9px rgba(239,68,68,0) } }
+/* Mic is still live (listening for barge-in) while Awaaz talks - a slower, calmer pulse than
+   .recording so it reads as "still on" without looking like an error/alert state. */
+.mic-btn.speaking { animation: mic-speaking-pulse 1.8s ease-in-out infinite; }
+@keyframes mic-speaking-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(47,230,200,.4) } 50% { box-shadow: 0 0 0 7px rgba(47,230,200,0) } }
+/* While a voice session is running, the JS-driven #mic-status line (below) is the single status
+   readout - suppress the Python-driven #status-line so the two never show conflicting text. */
+#app-root.voice-session-on #status-line { display: none; }
 /* Positioned absolutely (not inline) so it never fights Gradio's own flex-basis math for the
    composer row's other children — it just floats above the mic button when shown. */
 .mic-btn-group { position: relative; flex: none; }
@@ -336,19 +345,41 @@ JS = r"""
   setInterval(tickClock, 1000);
   document.addEventListener("DOMContentLoaded", tickClock);
 
-  // ── hands-free conversation mode (ChatGPT/Siri-style) ──
-  // Tap once: Awaaz starts listening (mic button turns red, a level meter animates) and stays in a
-  // hands-free loop — it auto-detects when you stop talking (no second tap needed), sends, speaks
-  // the reply, then automatically starts listening again for your next turn. Talking while it's
-  // speaking always barges in. Tap "End conversation" (shown only while the loop is running) to stop.
-  const SPEECH_RMS = 0.02;          // level.above this counts as "you're talking"
-  const SILENCE_STOP_MS = 1300;     // ...and this much silence after that means "you're done"
-  const MAX_RECORD_MS = 30000;      // safety cap so a stuck mic can't record forever
-  const TURN_TIMEOUT_MS = 25000;    // give up waiting for a reply and just listen again
+  // ── continuous voice session with real barge-in (VAD-driven, not tap-driven) ──
+  // Tap once: ONE microphone grant for the whole session. The mic stays live and is continuously
+  // analysed for voice activity in every state, including while Awaaz is talking — so starting to
+  // talk over it interrupts immediately, with no button press. State machine:
+  //   LISTENING -> USER_SPEAKING -> PROCESSING -> ASSISTANT_SPEAKING -> LISTENING
+  // with a direct ASSISTANT_SPEAKING -> USER_SPEAKING edge (and PROCESSING -> USER_SPEAKING) for
+  // barge-in. Tap "End" (or the mic again) to release the microphone and stop everything.
+  //
+  // Tunable without a settings page — e.g. from the browser console:
+  //   localStorage.setItem('awaaz_silence_ms', '900'); location.reload();
+  function vadTunable(key, fallback) {
+    try { const v = localStorage.getItem("awaaz_" + key); return v !== null && v !== "" ? Number(v) : fallback; }
+    catch (e) { return fallback; }
+  }
+  const VAD = {
+    speechRms: vadTunable("speech_rms", 0.02),         // energy above this = "someone is talking"
+    bargeInRms: vadTunable("bargein_rms", 0.035),       // higher bar to interrupt playback (echo/false-trigger margin)
+    onsetMs: vadTunable("onset_ms", 120),               // sustained-above-threshold time before it commits (rejects clicks/pops)
+    silenceMs: vadTunable("silence_ms", 700),           // end-of-speech pause (spec default)
+    maxUtteranceMs: vadTunable("max_utterance_ms", 30000),
+    turnTimeoutMs: vadTunable("turn_timeout_ms", 25000), // give up waiting for a reply and resume listening
+  };
 
-  const REC = { active: false, stream: null, rec: null, chunks: [], mime: "", ctx: null, analyser: null,
-               timer: null, seconds: 0, hasSpeech: false, silenceStart: 0, startedAt: 0 };
-  const CONV = { active: false, watchTimer: null, watchObserver: null };
+  const STATE = { IDLE: "idle", LISTENING: "listening", USER_SPEAKING: "user_speaking",
+                 PROCESSING: "processing", ASSISTANT_SPEAKING: "assistant_speaking" };
+  const STATUS_TEXT = { listening: "Listening…", user_speaking: "Hearing you…",
+                        processing: "Thinking…", assistant_speaking: "Speaking…" };
+
+  const SESSION = {
+    active: false, state: STATE.IDLE, genId: 0,
+    stream: null, ctx: null, analyser: null, buf: null, mime: "",
+    rec: null, chunks: [],
+    onsetStart: 0, silenceStart: 0, utterStartedAt: 0,
+    rafId: null, replyObserver: null, turnTimer: null,
+  };
 
   function pickMime() {
     if (!window.MediaRecorder) return "";
@@ -358,69 +389,133 @@ JS = r"""
   }
   function setBars(level) {
     document.querySelectorAll("#rec-indicator .bars i").forEach(function (bar, i) {
-      const h = 4 + Math.min(16, level * (140 + i * 30));
-      bar.style.height = h + "px";
+      bar.style.height = (4 + Math.min(16, level * (140 + i * 30))) + "px";
     });
   }
   function setStatus(text) { const el = document.getElementById("mic-status"); if (el) el.textContent = text || ""; }
-  function updateConvUI() {
-    document.querySelectorAll(".mic-btn").forEach(function (b) { b.classList.toggle("conv-on", CONV.active); });
-    const end = document.getElementById("end-conv-btn"); if (end) end.style.display = CONV.active ? "" : "none";
+  function refreshUI() {
+    document.querySelectorAll(".mic-btn").forEach(function (b) {
+      b.classList.toggle("conv-on", SESSION.active);
+      b.classList.toggle("recording", SESSION.state === STATE.USER_SPEAKING);
+      b.classList.toggle("speaking", SESSION.state === STATE.ASSISTANT_SPEAKING);
+    });
+    const end = document.getElementById("end-conv-btn"); if (end) end.style.display = SESSION.active ? "" : "none";
+    const ind = document.getElementById("rec-indicator"); if (ind) ind.classList.toggle("on", SESSION.state === STATE.USER_SPEAKING);
+    const root = document.getElementById("app-root"); if (root) root.classList.toggle("voice-session-on", SESSION.active);
   }
-  function tickTimer() {
-    REC.seconds += 1;
-    const m = String(Math.floor(REC.seconds / 60)).padStart(2, "0"), s = String(REC.seconds % 60).padStart(2, "0");
-    setStatus("Listening " + m + ":" + s + " — pause to send, or tap to send now");
-  }
-  function levelLoop() {
-    if (!REC.active || !REC.analyser) return;
-    const buf = new Float32Array(REC.analyser.fftSize);
-    REC.analyser.getFloatTimeDomainData(buf);
-    let sum = 0; for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
-    const level = Math.sqrt(sum / buf.length);
-    setBars(level);
-    const now = Date.now();
-    if (level > SPEECH_RMS) { REC.hasSpeech = true; REC.silenceStart = 0; }
-    else if (REC.hasSpeech) {
-      if (!REC.silenceStart) REC.silenceStart = now;
-      else if (now - REC.silenceStart > SILENCE_STOP_MS) { stopRecording(true); return; }
-    }
-    if (now - REC.startedAt > MAX_RECORD_MS) { stopRecording(true); return; }
-    requestAnimationFrame(levelLoop);
-  }
+  function setState(next) { SESSION.state = next; setStatus(STATUS_TEXT[next] || ""); refreshUI(); }
 
-  // ── barge-in: talking to Awaaz always interrupts whatever it's currently saying ──
+  // Talking to Awaaz always interrupts whatever it's currently saying — instantly, client-side,
+  // no server round-trip needed to stop audio that's already playing in the browser.
+  //
+  // Clearing .autoplay matters as much as .pause(): if a reply's <audio> element is still
+  // loading (data URI/blob not yet decoded) when this runs, .pause() on a not-yet-playing
+  // element doesn't stick - the browser can still auto-start it once the resource becomes
+  // ready, moments later, unless the autoplay attribute itself is cleared first. .muted is a
+  // last line of defence so a race here is silent rather than audible even in the worst case.
   function stopSpeaking() {
     document.querySelectorAll("#audio-row audio").forEach(function (a) {
-      try { a.pause(); a.currentTime = 0; } catch (e) {}
+      try { a.autoplay = false; a.muted = true; a.pause(); a.currentTime = 0; } catch (e) {}
     });
   }
 
-  async function startRecording() {
-    clearConvWatch();
-    stopSpeaking();
+  // ── session lifecycle: one mic grant, kept alive for the whole conversation ──
+  async function startSession() {
+    if (SESSION.active) return;
     try {
-      REC.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+      SESSION.stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
     } catch (e) {
       setStatus("Microphone blocked — allow microphone access for this site, then try again.");
-      CONV.active = false; updateConvUI();
       return;
     }
-    REC.ctx = new (window.AudioContext || window.webkitAudioContext)();
-    if (REC.ctx.state === "suspended") await REC.ctx.resume();
-    REC.analyser = REC.ctx.createAnalyser(); REC.analyser.fftSize = 1024;
-    REC.ctx.createMediaStreamSource(REC.stream).connect(REC.analyser);
-    REC.mime = pickMime(); REC.chunks = [];
-    try { REC.rec = new MediaRecorder(REC.stream, REC.mime ? { mimeType: REC.mime } : {}); }
-    catch (e) { REC.rec = new MediaRecorder(REC.stream); }
-    REC.rec.ondataavailable = function (e) { if (e.data && e.data.size) REC.chunks.push(e.data); };
-    REC.rec.start();
-    REC.active = true; REC.seconds = 0; REC.hasSpeech = false; REC.silenceStart = 0; REC.startedAt = Date.now();
-    document.querySelectorAll(".mic-btn").forEach(function (b) { b.classList.add("recording"); });
-    const ind = document.getElementById("rec-indicator"); if (ind) ind.classList.add("on");
-    setStatus("Listening 00:00 — pause to send, or tap to send now");
-    REC.timer = setInterval(tickTimer, 1000);
-    levelLoop();
+    SESSION.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (SESSION.ctx.state === "suspended") await SESSION.ctx.resume();
+    SESSION.analyser = SESSION.ctx.createAnalyser(); SESSION.analyser.fftSize = 1024;
+    SESSION.buf = new Float32Array(SESSION.analyser.fftSize);
+    SESSION.ctx.createMediaStreamSource(SESSION.stream).connect(SESSION.analyser);
+    SESSION.mime = pickMime();
+    SESSION.active = true;
+    setState(STATE.LISTENING);
+    startReplyWatcher();          // idempotent - a no-op if already watching from a prior session
+    vadLoop();
+  }
+
+  function endSession() {
+    if (!SESSION.active) return;
+    SESSION.active = false;
+    SESSION.genId++;                                  // invalidate anything still in flight
+    if (SESSION.rafId) cancelAnimationFrame(SESSION.rafId);
+    clearTurnTimeout();
+    // The reply watcher is deliberately NOT disconnected here: a request from the ended session
+    // can still resolve late server-side, and its staleness check (SESSION.active is now false)
+    // is exactly what keeps that late reply muted. Tearing the observer down would remove the
+    // one thing still guarding against it, right when it's needed most.
+    if (SESSION.rec && SESSION.rec.state !== "inactive") { try { SESSION.rec.stop(); } catch (e) {} }
+    if (SESSION.stream) SESSION.stream.getTracks().forEach(function (t) { t.stop(); });
+    SESSION.stream = null; SESSION.ctx = null; SESSION.analyser = null;
+    stopSpeaking();
+    setState(STATE.IDLE);
+    setStatus("");
+  }
+  window.awaazEndConversation = endSession;
+
+  // Onset must be sustained for VAD.onsetMs before it commits — rejects clicks, pops, brief echo spikes.
+  function trackOnset(level, now, threshold, onCommit) {
+    if (level > threshold) {
+      if (!SESSION.onsetStart) SESSION.onsetStart = now;
+      else if (now - SESSION.onsetStart > VAD.onsetMs) { SESSION.onsetStart = 0; onCommit(); }
+    } else {
+      SESSION.onsetStart = 0;
+    }
+  }
+
+  // The continuous VAD loop: runs every animation frame for the ENTIRE session, in every state -
+  // this is what makes barge-in during ASSISTANT_SPEAKING possible at all.
+  function vadLoop() {
+    if (!SESSION.active || !SESSION.analyser) return;
+    SESSION.analyser.getFloatTimeDomainData(SESSION.buf);
+    let sum = 0; for (let i = 0; i < SESSION.buf.length; i++) sum += SESSION.buf[i] * SESSION.buf[i];
+    const level = Math.sqrt(sum / SESSION.buf.length);
+    const now = Date.now();
+
+    switch (SESSION.state) {
+      case STATE.LISTENING:
+        trackOnset(level, now, VAD.speechRms, beginUtterance);
+        break;
+      case STATE.USER_SPEAKING:
+        setBars(level);
+        if (level > VAD.speechRms) {
+          SESSION.silenceStart = 0;
+        } else {
+          if (!SESSION.silenceStart) SESSION.silenceStart = now;
+          else if (now - SESSION.silenceStart > VAD.silenceMs) { endUtterance(true); break; }
+        }
+        if (now - SESSION.utterStartedAt > VAD.maxUtteranceMs) { endUtterance(true); break; }
+        break;
+      case STATE.PROCESSING:
+        // Barge in even before the reply arrives (Test 3): a higher threshold than plain
+        // listening, since this state can follow the tail of your own last utterance.
+        trackOnset(level, now, VAD.bargeInRms, beginUtterance);
+        break;
+      case STATE.ASSISTANT_SPEAKING:
+        trackOnset(level, now, VAD.bargeInRms, function () { stopSpeaking(); beginUtterance(); });
+        break;
+    }
+    SESSION.rafId = requestAnimationFrame(vadLoop);
+  }
+
+  function beginUtterance() {
+    clearTurnTimeout();
+    SESSION.genId++;                     // supersede whatever the previous turn was waiting on
+    SESSION.chunks = [];
+    try { SESSION.rec = new MediaRecorder(SESSION.stream, SESSION.mime ? { mimeType: SESSION.mime } : {}); }
+    catch (e) { SESSION.rec = new MediaRecorder(SESSION.stream); }
+    SESSION.rec.ondataavailable = function (e) { if (e.data && e.data.size) SESSION.chunks.push(e.data); };
+    SESSION.rec.start();
+    SESSION.utterStartedAt = Date.now();
+    SESSION.silenceStart = 0; SESSION.onsetStart = 0;
+    setState(STATE.USER_SPEAKING);
   }
 
   async function waitFor(fn, ms) {
@@ -429,76 +524,89 @@ JS = r"""
     return null;
   }
 
-  async function stopRecording(send) {
-    REC.active = false;
-    clearInterval(REC.timer);
-    document.querySelectorAll(".mic-btn").forEach(function (b) { b.classList.remove("recording"); });
-    const ind = document.getElementById("rec-indicator"); if (ind) ind.classList.remove("on");
-    if (!REC.rec) return;
-    await new Promise(function (resolve) { REC.rec.onstop = resolve; REC.rec.stop(); });
-    if (REC.stream) REC.stream.getTracks().forEach(function (t) { t.stop(); });
-    if (send === false) { setStatus(""); return; }
-    const blob = new Blob(REC.chunks, { type: REC.rec.mimeType || REC.mime });
-    if (blob.size < 800) {
-      if (CONV.active) { setStatus("Didn't catch that — listening again…"); setTimeout(function () { if (CONV.active) startRecording(); }, 500); }
-      else setStatus("That was too short — try again.");
-      return;
-    }
-    setStatus("Sending…");
+  async function endUtterance(send) {
+    const rec = SESSION.rec;
+    if (!rec || rec.state === "inactive") { if (SESSION.active) setState(STATE.LISTENING); return; }
+    setState(STATE.PROCESSING);          // synchronous, immediate - stops vadLoop re-entering this branch
+    const myGen = SESSION.genId;
+    await new Promise(function (resolve) { rec.onstop = resolve; rec.stop(); });
+    if (!SESSION.active || myGen !== SESSION.genId) return;     // session ended or superseded mid-stop
+    if (send === false) { setState(STATE.LISTENING); return; }
+    const blob = new Blob(SESSION.chunks, { type: rec.mimeType || SESSION.mime });
+    if (blob.size < 800) { setState(STATE.LISTENING); return; }  // too short to be real speech
     const ext = (blob.type || "").includes("mp4") ? "m4a" : (blob.type || "").includes("ogg") ? "ogg" : "webm";
     const file = new File([blob], "voice_" + Date.now() + "." + ext, { type: blob.type });
     const input = await waitFor(function () { return document.querySelector("#mic-upload input[type=file]"); }, 4000);
-    if (!input) { setStatus("Could not reach the app — please reload the page."); return; }
+    if (!input || !SESSION.active || myGen !== SESSION.genId) return;
     const dt = new DataTransfer(); dt.items.add(file); input.files = dt.files;
     input.dispatchEvent(new Event("change", { bubbles: true }));
-    if (CONV.active) armConvWatch();
+    armTurnTimeout(myGen);
   }
 
-  // Once a hands-free turn is sent: wait for the spoken reply to actually finish playing before
-  // listening again (so Awaaz doesn't hear itself); if no reply clip shows up at all (TTS failed,
-  // or nothing needed saying), give up after TURN_TIMEOUT_MS and listen again anyway.
-  function clearConvWatch() {
-    if (CONV.watchTimer) { clearTimeout(CONV.watchTimer); CONV.watchTimer = null; }
-    if (CONV.watchObserver) { CONV.watchObserver.disconnect(); CONV.watchObserver = null; }
+  function clearTurnTimeout() {
+    if (SESSION.turnTimer) { clearTimeout(SESSION.turnTimer); SESSION.turnTimer = null; }
   }
-  function armConvWatch() {
-    clearConvWatch();
+  // No reply arrived at all within this window (TTS failed, or nothing needed saying) - resume
+  // listening anyway rather than waiting forever. Per-turn (myGen-gated) since a newer turn's
+  // own timeout, or its reply arriving, should not be cancelled by an older turn's timer.
+  function armTurnTimeout(myGen) {
+    clearTurnTimeout();
+    SESSION.turnTimer = setTimeout(function () {
+      if (SESSION.active && myGen === SESSION.genId && SESSION.state === STATE.PROCESSING) setState(STATE.LISTENING);
+    }, VAD.turnTimeoutMs);
+  }
+
+  // The LAST <audio> in the row, not the first: Gradio normally reuses a single element across
+  // turns, but this stays correct even if more than one ever coexists in the DOM.
+  function lastAudio(row) {
+    const els = row ? row.querySelectorAll("audio") : [];
+    return els.length ? els[els.length - 1] : null;
+  }
+
+  // ── watch for the reply: a fresh <audio> src means "an answer arrived" ──
+  // Set up ONCE for the entire page lifetime (not per-utterance, and not even per-session) and
+  // never torn down, so a reply that arrives late - after the user has already moved on to a new
+  // utterance, a new turn, or has ended the conversation entirely - is still seen and still
+  // judged. Whether it's allowed to speak depends only on the CURRENT state at the moment it
+  // arrives: if we're still PROCESSING (still waiting on exactly this reply), it plays; in any
+  // other state, it's stale and is suppressed immediately. This is what guarantees an interrupted
+  // response can never resume even when its API calls finish late server-side (Gradio's
+  // synchronous handler model doesn't give a clean way to abort the Groq/Gemini calls themselves
+  // mid-flight, but their result is never shown or spoken once superseded) - anything short of a
+  // permanent, never-disconnected watch leaves a window where a late reply plays unguarded.
+  function startReplyWatcher() {
+    if (SESSION.replyObserver) return;      // already watching - idempotent across sessions
     const row = document.getElementById("audio-row");
-    const priorSrc = (row && row.querySelector("audio")) ? row.querySelector("audio").currentSrc : "";
-    let settled = false;
-    function resume() {
-      if (settled || !CONV.active) return;
-      settled = true;
-      clearConvWatch();
-      startRecording();
-    }
-    if (row) {
-      CONV.watchObserver = new MutationObserver(function () {
-        const a = row.querySelector("audio");
-        if (a && a.currentSrc && a.currentSrc !== priorSrc) {
-          CONV.watchObserver.disconnect();
-          a.addEventListener("ended", resume, { once: true });
-        }
-      });
-      CONV.watchObserver.observe(row, { childList: true, subtree: true, attributes: true, attributeFilter: ["src"] });
-    }
-    CONV.watchTimer = setTimeout(resume, TURN_TIMEOUT_MS);
+    if (!row) return;
+    let lastSeenSrc = lastAudio(row) ? lastAudio(row).src : "";
+    SESSION.replyObserver = new MutationObserver(function () {
+      const a = lastAudio(row);
+      // .src (not .currentSrc): .src resolves synchronously the instant it's assigned;
+      // .currentSrc lags behind (resolved async by the browser's media pipeline), so comparing
+      // it right when a mutation fires can still see the old value and miss the reply entirely.
+      if (!a || !a.src || a.src === lastSeenSrc) return;
+      lastSeenSrc = a.src;
+      if (!SESSION.active || SESSION.state !== STATE.PROCESSING) {
+        stopSpeaking();   // not currently expecting a reply - stale, never let it speak
+        return;
+      }
+      clearTurnTimeout();
+      // Undo any muted/autoplay-off left on this element by a PRIOR interruption - Gradio
+      // reuses the same <audio> node across turns, so without this a genuinely new, valid
+      // reply could inherit a previous turn's "never play" state and stay silent.
+      a.muted = false; a.autoplay = true;
+      a.play().catch(function () {});
+      setState(STATE.ASSISTANT_SPEAKING);
+      a.addEventListener("ended", function () {
+        if (SESSION.active && SESSION.state === STATE.ASSISTANT_SPEAKING) setState(STATE.LISTENING);
+      }, { once: true });
+    });
+    SESSION.replyObserver.observe(row, { childList: true, subtree: true, attributes: true, attributeFilter: ["src"] });
   }
-
-  function endConversation() {
-    CONV.active = false;
-    clearConvWatch();
-    if (REC.active) stopRecording(false);
-    stopSpeaking();
-    setStatus("");
-    updateConvUI();
-  }
-  window.awaazEndConversation = endConversation;
 
   window.awaazMicTap = function () {
-    if (REC.active) { stopRecording(true); return; }   // done talking early — send now
-    CONV.active = true; updateConvUI();                 // (barge-in-while-speaking also lands here)
-    startRecording();
+    if (SESSION.active) { endSession(); return; }
+    startSession();
   };
 })();
 """
@@ -549,8 +657,10 @@ def welcome_html(language: str = "en") -> str:
 
 
 def rec_indicator_html() -> str:
+    # Shown only while actively capturing an utterance (state USER_SPEAKING); the calmer
+    # "Listening…"/"Speaking…" states are conveyed by #mic-status instead, not this pulse.
     bars = "".join("<i></i>" for _ in range(5))
-    return f'<div id="rec-indicator"><span class="dot"></span><span>Listening…</span><span class="bars">{bars}</span></div>'
+    return f'<div id="rec-indicator"><span class="dot"></span><span>Hearing you…</span><span class="bars">{bars}</span></div>'
 
 
 def reticle_html() -> str:
