@@ -288,26 +288,36 @@ def uptime_html(cpu_pct: float) -> str:
 
 def dashboard_panels(state: ConversationState | None):
     """Read-only HTML for the dashboard cards. Called on load, every DASHBOARD_POLL_SECONDS,
-    and after any turn or reminder/task-affecting action so they stay live."""
+    and after any turn or reminder/task-affecting action so they stay live. Also builds the three
+    card-detail modals' content (always kept fresh in the DOM even while closed - see
+    theme.JS's awaazOpenModal), so opening one never shows a stale snapshot from whenever the
+    page last polled before the click."""
     today = tasks.today_local()
     now_local = datetime.now(settings.tz)
-    rems = reminders.list_reminders()[:8]
+
+    all_rems = reminders.list_reminders(limit=100)
     rem_rows = [(_reminder_time_12h(r.local_due), _reminder_day_label(r.local_due.date(), today), r.title,
                 f"Repeats {r.recurrence}" if r.recurrence != "none" else "One-time",
                 r.local_due.date() == today)
-               for r in rems]
-    reminders_html = theme.panel("Reminders", theme.reminder_list(rem_rows, "No upcoming reminders"),
-                                 len(rems), icon_svg=theme.BELL_SVG)
+               for r in all_rems]
+    reminders_html = theme.panel("Reminders", theme.reminder_list(rem_rows[:8], "No upcoming reminders"),
+                                 len(all_rems), icon_svg=theme.BELL_SVG, onclick="awaazOpenModal('reminders')")
+    reminders_modal_html = theme.modal_section("All Reminders", theme.BELL_SVG,
+                                               theme.reminder_list(rem_rows, "No upcoming reminders"))
 
     month = tasks.month_key(today)
-    items = tasks.list_tasks(month)[:8]
+    all_items = tasks.list_tasks(month)
     prog = tasks.month_progress(month, today)
     task_rows = [(t.title, _task_due_label(t, today, now_local, month), _task_tag_class(t, today),
                  t.status == "completed")
-                for t in items]
-    tasks_body = theme.task_list(task_rows, "No tasks this month") + theme.progress_bar(
-        prog.percent, f"{prog.completed}/{prog.total} · {fmt_month(month)}")
-    tasks_html = theme.panel("Tasks", tasks_body, f"{prog.completed}/{prog.total}", icon_svg=theme.CHECKLIST_SVG)
+                for t in all_items]
+    progress_html = theme.progress_bar(prog.percent, f"{prog.completed}/{prog.total} · {fmt_month(month)}")
+    tasks_body = theme.task_list(task_rows[:8], "No tasks this month") + progress_html
+    tasks_html = theme.panel("Tasks", tasks_body, f"{prog.completed}/{prog.total}", icon_svg=theme.CHECKLIST_SVG,
+                             onclick="awaazOpenModal('tasks')")
+    tasks_modal_html = theme.modal_section(
+        f"Tasks — {fmt_month(month)}", theme.CHECKLIST_SVG,
+        theme.task_list(task_rows, "No tasks this month") + progress_html)
 
     city = (state.last_city if state and state.last_city else settings.default_city)
     report, error = _cached_weather(city)
@@ -317,15 +327,31 @@ def dashboard_panels(state: ConversationState | None):
         weather_html_body = theme.weather_body(
             f"{report.temperature:.0f}", weather.describe_code(report.weather_code), report.location.name, icon,
             humidity=humidity, wind=f"{report.wind_speed:.1f} km/h", feels_like=f"{report.apparent_temperature:.1f}°C")
+        forecast_rows = "".join(
+            theme.forecast_row(
+                "Today" if d.day == today else d.day.strftime("%A"),
+                theme.RAIN_SVG if d.rain_expected else theme.CLOUD_SVG,
+                weather.describe_code(d.weather_code),
+                f"{d.temp_max:.0f}" if d.temp_max is not None else "--",
+                f"{d.temp_min:.0f}" if d.temp_min is not None else "--",
+                f"{d.precipitation_probability}%" if d.precipitation_probability is not None else "--",
+            )
+            for d in report.daily[:7]
+        )
+        weather_modal_body = weather_html_body + f'<div class="forecast-list">{forecast_rows}</div>'
     else:
         weather_html_body = theme.weather_body("--", error or "unavailable", city, theme.CLOUD_SVG)
-    weather_html = theme.panel("Weather", weather_html_body, icon_svg=theme.CLOUD_SVG)
+        weather_modal_body = weather_html_body
+    weather_html = theme.panel("Weather", weather_html_body, icon_svg=theme.CLOUD_SVG,
+                               onclick="awaazOpenModal('weather')")
+    weather_modal_html = theme.modal_section("7-Day Forecast", theme.CLOUD_SVG, weather_modal_body)
 
     # One shared reading: psutil.cpu_percent(interval=None) measures usage since its OWN last
     # call, so calling it twice back-to-back would make the second reading measure almost no
     # elapsed time and always come back near 0%.
     cpu_pct = psutil.cpu_percent(interval=None)
-    return reminders_html, tasks_html, weather_html, system_stats_html(cpu_pct), uptime_html(cpu_pct)
+    return (reminders_html, tasks_html, weather_html, system_stats_html(cpu_pct), uptime_html(cpu_pct),
+           weather_modal_html, tasks_modal_html, reminders_modal_html)
 
 
 def extract_conversation(conv_id: int | None, chatbot_history: list) -> str | None:
@@ -371,12 +397,27 @@ def build_ui() -> gr.Blocks:
         weather_panel = gr.HTML(elem_id="weather-card", render=False)
         sys_stats_panel = gr.HTML(render=False)
         uptime_panel = gr.HTML(render=False)
+        weather_modal_panel = gr.HTML(elem_id="modal-weather-content", elem_classes="modal-section", render=False)
+        tasks_modal_panel = gr.HTML(elem_id="modal-tasks-content", elem_classes="modal-section", render=False)
+        reminders_modal_panel = gr.HTML(elem_id="modal-reminders-content", elem_classes="modal-section", render=False)
 
         with gr.Column(elem_id="app-root"):
             gr.HTML(theme.topbar_html())
 
             # off-canvas conversation drawer (opened by the ☰ / ⚙ buttons in the top bar)
             gr.HTML('<div id="scrim" onclick="awaazToggleSidebar()"></div>')
+
+            # card detail modals (Weather / Tasks / Reminders) - hidden by default, toggled by
+            # awaazOpenModal/awaazCloseModal in theme.JS; content stays populated even while
+            # closed so it's never stale on open (see dashboard_panels in app.py).
+            gr.HTML(theme.modal_shell_html())
+            with gr.Column(elem_id="modal-panel"):
+                gr.HTML('<button class="modal-close" onclick="awaazCloseModal()" title="Close">✕</button>')
+                with gr.Column(elem_id="modal-body"):
+                    weather_modal_panel.render()
+                    tasks_modal_panel.render()
+                    reminders_modal_panel.render()
+
             with gr.Column(elem_id="sidebar"):
                 gr.HTML(theme.sidebar_header_html())
                 new_chat_btn = gr.Button("＋ New chat", elem_id="new-chat-btn")
@@ -450,7 +491,8 @@ def build_ui() -> gr.Blocks:
 
         # ── events ───────────────────────────────────────────────────────
         turn_outputs = [chatbot, active_id, convo_state, text_in, status_line, audio_out, conv_list]
-        dashboard_outputs = [reminders_panel, tasks_panel, weather_panel, sys_stats_panel, uptime_panel]
+        dashboard_outputs = [reminders_panel, tasks_panel, weather_panel, sys_stats_panel, uptime_panel,
+                            weather_modal_panel, tasks_modal_panel, reminders_modal_panel]
 
         text_in.submit(text_turn, [text_in, chatbot, active_id, convo_state, autoplay_cb], turn_outputs
                        ).then(dashboard_panels, convo_state, dashboard_outputs)

@@ -168,6 +168,9 @@ h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
 
 .card { background: linear-gradient(180deg, var(--panel-2), var(--panel)); border: 1px solid var(--border);
   border-radius: 14px; padding: 14px 15px 14px; box-shadow: 0 14px 34px -20px rgba(0,0,0,.6); flex: none; }
+.card.clickable { cursor: pointer; transition: border-color .15s ease, transform .15s ease; }
+.card.clickable:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+.card.clickable:active { transform: translateY(0); }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 11px; }
 .card-title { display: flex; align-items: center; gap: 8px; font-size: .82rem; font-weight: 700;
   color: var(--text) !important; letter-spacing: .02em; }
@@ -386,12 +389,64 @@ h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
 #theme-toggle { min-width: 32px !important; width: 32px; height: 32px; border-radius: 50% !important;
   padding: 0 !important; background: transparent !important; border: 1px solid var(--border) !important; }
 
+/* ── card detail modals (Weather / Tasks / Reminders) ────── */
+#modal-backdrop { position: fixed; inset: 0; z-index: 90; background: rgba(3,7,15,.65);
+  opacity: 0; pointer-events: none; transition: opacity .18s ease; backdrop-filter: blur(2px); }
+#app-root.modal-open #modal-backdrop { opacity: 1; pointer-events: auto; }
+#modal-panel { position: fixed; z-index: 91; top: 50%; left: 50%; width: min(560px, 92vw); max-height: 82vh;
+  background: linear-gradient(180deg, var(--panel-2), var(--panel)) !important;
+  border: 1px solid var(--border-strong) !important; border-radius: 16px !important;
+  box-shadow: 0 30px 70px -20px rgba(0,0,0,.6); display: flex !important; flex-direction: column !important;
+  flex-wrap: nowrap !important; opacity: 0; pointer-events: none; overflow: hidden;
+  transform: translate(-50%, -46%); transition: opacity .18s ease, transform .18s ease; }
+#app-root.modal-open #modal-panel { opacity: 1; pointer-events: auto; transform: translate(-50%, -50%); }
+.modal-close { position: absolute; top: 14px; right: 14px; z-index: 2; width: 30px; height: 30px;
+  border-radius: 8px; border: 1px solid var(--border); background: rgba(255,255,255,.04); color: var(--muted);
+  cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: .85rem; }
+.modal-close:hover { color: var(--text); border-color: var(--border-strong); background: var(--accent-soft); }
+/* #modal-body is itself a flex item of #modal-panel, and each .modal-section (when shown) is in
+   turn a flex item of #modal-body - both need flex:none/flex:1 1 auto set explicitly, because
+   Gradio's own Column/HTML component CSS defaults every one of these to flex:1 1 0%, which
+   collapses an item with no explicit height to zero and hides its content behind the resulting
+   empty box (the same failure mode already fixed for #left-rail and friends, recurring here). */
+#modal-body { display: flex !important; flex-direction: column !important; flex-wrap: nowrap !important;
+  flex: 1 1 auto !important; min-height: 0; overflow-y: auto; padding: 20px; }
+/* Gradio applies elem_classes to BOTH the outer .block wrapper and the inner .prose div it
+   renders gr.HTML content into, but elem_id only to the outer one - so the "show" rule has to
+   match the inner .prose.modal-section div too (by descendant selector off the outer id), or
+   the actual content stays display:none forever regardless of which modal is toggled open. */
+.modal-section { display: none; }
+#app-root.modal-weather #modal-weather-content,
+#app-root.modal-weather #modal-weather-content .modal-section,
+#app-root.modal-tasks #modal-tasks-content,
+#app-root.modal-tasks #modal-tasks-content .modal-section,
+#app-root.modal-reminders #modal-reminders-content,
+#app-root.modal-reminders #modal-reminders-content .modal-section { display: block !important; flex: none !important; }
+.modal-section h3 { margin: 0 0 14px; font-size: 1rem; font-weight: 700; color: var(--text) !important;
+  display: flex; align-items: center; gap: 9px; padding-right: 34px; }
+.modal-section h3 svg { width: 17px; height: 17px; color: var(--accent) !important; flex: none; }
+.modal-section .card-head, .modal-section .weather-hero { margin-bottom: 14px; }
+
+.forecast-list { margin-top: 16px; border-top: 1px solid var(--border); }
+.forecast-row { display: flex; align-items: center; gap: 12px; padding: 10px 2px; border-bottom: 1px solid var(--border); }
+.forecast-day { width: 78px; flex: none; font-size: .82rem; font-weight: 600; color: var(--text) !important; }
+.forecast-icon { width: 20px; height: 20px; color: var(--accent) !important; flex: none; }
+.forecast-icon svg { width: 100%; height: 100%; }
+.forecast-cond { flex: 1; min-width: 0; font-size: .76rem; color: var(--muted) !important; text-transform: capitalize; }
+.forecast-temps { flex: none; font-size: .82rem; font-family: 'JetBrains Mono', monospace; }
+.forecast-temps .hi { color: var(--text) !important; font-weight: 700; }
+.forecast-temps .lo { color: var(--faint) !important; margin-left: 5px; }
+.forecast-rain { flex: none; width: 46px; text-align: right; font-size: .7rem; color: var(--accent) !important;
+  font-family: 'JetBrains Mono', monospace; }
+
 @media (max-width: 640px) {
   #dashboard { padding: 10px; gap: 10px; }
   #topbar .brand small { display: none; }
   .brand-title { font-size: 1.1rem; letter-spacing: .2em; }
   .orb-wrap { width: 180px; height: 180px; }
   .orb-core { width: 104px; height: 104px; }
+  #modal-panel { width: 94vw; max-height: 88vh; }
+  .forecast-cond { display: none; }
 }
 """
 
@@ -436,6 +491,34 @@ JS = r"""
     const el = document.querySelector("#composer-input textarea, #composer-input input");
     if (el) el.focus();
   };
+
+  // ── card detail modals (Weather / Tasks / Reminders) ──
+  // Content for all three is always kept live in the DOM (see dashboard_panels in app.py) so
+  // opening one never shows stale data; only which one is visible is toggled here, via a class
+  // on #app-root that the CSS uses to show the matching #modal-*-content block.
+  const MODAL_NAMES = ["weather", "tasks", "reminders"];
+  window.awaazOpenModal = function (name) {
+    const root = document.getElementById("app-root");
+    if (!root) return;
+    MODAL_NAMES.forEach(function (n) { root.classList.remove("modal-" + n); });
+    root.classList.add("modal-open", "modal-" + name);
+  };
+  window.awaazCloseModal = function () {
+    const root = document.getElementById("app-root");
+    if (!root) return;
+    root.classList.remove("modal-open");
+    MODAL_NAMES.forEach(function (n) { root.classList.remove("modal-" + n); });
+  };
+  document.addEventListener("click", function (e) {
+    const root = document.getElementById("app-root");
+    if (!root || !root.classList.contains("modal-open")) return;
+    const panel = document.getElementById("modal-panel");
+    const opener = e.target.closest(".card.clickable");
+    if (panel && !panel.contains(e.target) && !opener) awaazCloseModal();
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") awaazCloseModal();
+  });
 
   // ── live clock ──
   function tickClock() {
@@ -852,10 +935,34 @@ def voice_orb_html() -> str:
 
 # ── dashboard widgets (pure HTML builders — app.py supplies the data) ───────
 
-def panel(title: str, body_html: str, count: int | str | None = None, icon_svg: str = "") -> str:
+def panel(title: str, body_html: str, count: int | str | None = None, icon_svg: str = "",
+         onclick: str = "") -> str:
     n = f'<span class="count-pill">{html.escape(str(count))}</span>' if count is not None else ""
-    return (f'<div class="card"><div class="card-head"><div class="card-title">{icon_svg}'
+    cls = "card clickable" if onclick else "card"
+    click_attr = f' onclick="{html.escape(onclick, quote=True)}"' if onclick else ""
+    return (f'<div class="{cls}"{click_attr}><div class="card-head"><div class="card-title">{icon_svg}'
            f'<span>{html.escape(title)}</span></div>{n}</div>{body_html}</div>')
+
+
+def modal_section(title: str, icon_svg: str, body_html: str) -> str:
+    """Wraps a card detail modal's content with its heading; the close button is fixed chrome
+    that lives in the modal shell itself, not per-section, so its reserved space (padding-right
+    on h3) is baked into .modal-section h3 rather than repeated here."""
+    return f'<h3>{icon_svg}<span>{html.escape(title)}</span></h3>{body_html}'
+
+
+def forecast_row(day_label: str, icon_svg: str, condition: str, temp_max: str, temp_min: str,
+                 rain_pct: str) -> str:
+    return (f'<div class="forecast-row"><span class="forecast-day">{html.escape(day_label)}</span>'
+           f'<span class="forecast-icon">{icon_svg}</span>'
+           f'<span class="forecast-cond">{html.escape(condition)}</span>'
+           f'<span class="forecast-temps"><span class="hi">{html.escape(temp_max)}°</span>'
+           f'<span class="lo">{html.escape(temp_min)}°</span></span>'
+           f'<span class="forecast-rain">{html.escape(rain_pct)}</span></div>')
+
+
+def modal_shell_html() -> str:
+    return '<div id="modal-backdrop" onclick="awaazCloseModal()"></div>'
 
 
 def system_stats_body(cpu_pct: float, mem_pct: float, mem_used_gb: float, mem_total_gb: float,
