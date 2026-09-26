@@ -308,7 +308,7 @@ def dashboard_panels(state: ConversationState | None):
     month = tasks.month_key(today)
     all_items = tasks.list_tasks(month)
     prog = tasks.month_progress(month, today)
-    task_rows = [(t.title, _task_due_label(t, today, now_local, month), _task_tag_class(t, today),
+    task_rows = [(t.id, t.title, _task_due_label(t, today, now_local, month), _task_tag_class(t, today),
                  t.status == "completed")
                 for t in all_items]
     progress_html = theme.progress_bar(prog.percent, f"{prog.completed}/{prog.total} · {fmt_month(month)}")
@@ -354,6 +354,23 @@ def dashboard_panels(state: ConversationState | None):
            weather_modal_html, tasks_modal_html, reminders_modal_html)
 
 
+def toggle_task_status(trigger_value: str, state: ConversationState | None):
+    """Fired by the hidden #task-toggle-trigger textbox (see theme.JS's awaazToggleTask) when the
+    user clicks a task's checkbox directly on the dashboard. Flips pending<->completed via the
+    exact same tasks.set_task_status() call voice/text completion already uses, so a task checked
+    off from the UI behaves identically - including cancelling its linked reminder, if any."""
+    task_id_str = trigger_value.split(":", 1)[0] if trigger_value else ""
+    if task_id_str.isdigit():
+        task = tasks.get_task(int(task_id_str))
+        if task is not None and task.status in ("pending", "completed"):
+            next_status = "pending" if task.status == "completed" else "completed"
+            try:
+                tasks.set_task_status(task.id, next_status)
+            except tasks.TaskError:
+                log.warning("task_toggle_failed", extra={"task_id": task.id})
+    return dashboard_panels(state)
+
+
 def extract_conversation(conv_id: int | None, chatbot_history: list) -> str | None:
     """Write the current transcript to a text file and hand its path to the DownloadButton that
     triggered this — Gradio downloads a DownloadButton's new value automatically once its own
@@ -392,6 +409,13 @@ def build_ui() -> gr.Blocks:
         # No file_types filter: the browser's extension→MIME lookup classifies
         # ".webm" as video, so an "audio"-only filter rejects our own recordings.
         mic_upload = gr.File(elem_id="mic-upload", render=False)
+        # Hidden relay for task checkbox clicks (see theme.JS's awaazToggleTask). visible=False
+        # (rather than hidden by CSS, as done here) would drop the <textarea>/<button> from the
+        # DOM entirely, leaving nothing for the JS to find - same off-screen-CSS trick as
+        # #mic-upload above. The button (not the textbox's own change/input event) is what
+        # actually triggers the server call - see its js= wiring below for why.
+        task_toggle_trigger = gr.Textbox(elem_id="task-toggle-trigger", render=False)
+        task_toggle_btn = gr.Button(elem_id="task-toggle-btn", render=False)
         reminders_panel = gr.HTML(render=False)
         tasks_panel = gr.HTML(render=False)
         weather_panel = gr.HTML(elem_id="weather-card", render=False)
@@ -474,6 +498,8 @@ def build_ui() -> gr.Blocks:
                         audio_out.render()
                         stop_audio_btn.render()
                     mic_upload.render()
+                    task_toggle_trigger.render()
+                    task_toggle_btn.render()
 
                 with gr.Column(elem_id="right-rail"):
                     with gr.Row(elem_id="convo-head"):
@@ -501,6 +527,16 @@ def build_ui() -> gr.Blocks:
         mic_upload.upload(voice_turn, [mic_upload, chatbot, active_id, convo_state, autoplay_cb, mic_lang],
                           [*turn_outputs, mic_upload]
                          ).then(dashboard_panels, convo_state, dashboard_outputs)
+        # js= reads #task-toggle-trigger's live DOM value directly at click time, bypassing
+        # Gradio's own reactive tracking for that textbox entirely (which a synthetic input event
+        # on the textbox itself does not update - confirmed empirically, see theme.JS's comment
+        # on awaazToggleTask). The button click is real (native .click()), which Gradio handles
+        # exactly like a user-initiated click regardless of how it was triggered.
+        task_toggle_btn.click(
+            toggle_task_status, [task_toggle_trigger, convo_state], dashboard_outputs,
+            js="(triggerVal, state) => { const el = document.querySelector("
+              "'#task-toggle-trigger textarea, #task-toggle-trigger input'); "
+              "return [el ? el.value : triggerVal, state]; }")
 
         new_chat_btn.click(start_new_chat, outputs=[chatbot, active_id, convo_state, text_in])
         clear_btn.click(start_new_chat, outputs=[chatbot, active_id, convo_state, text_in])

@@ -205,7 +205,9 @@ h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
 .task-item { display: flex; align-items: center; gap: 9px; padding: 7px 8px; border-radius: 9px;
   background: rgba(255,255,255,.02); border: 1px solid transparent; }
 .task-check { width: 16px; height: 16px; border-radius: 5px; flex: none; border: 1.5px solid var(--faint);
-  display: flex; align-items: center; justify-content: center; color: transparent; }
+  display: flex; align-items: center; justify-content: center; color: transparent; cursor: pointer;
+  transition: border-color .12s ease, background .12s ease; }
+.task-check:hover { border-color: var(--accent) !important; }
 .task-check svg { width: 10px; height: 10px; }
 .task-item.done .task-check { background: var(--good); border-color: var(--good) !important; color: #06251a !important; }
 .task-text { flex: 1; font-size: .78rem; color: var(--text) !important; font-weight: 500; min-width: 0;
@@ -300,6 +302,8 @@ h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
   overflow: hidden !important; }
 #audio-row { position: absolute !important; left: -9999px !important; width: 1px !important; height: 1px !important;
   overflow: hidden !important; }
+#task-toggle-trigger, #task-toggle-btn { position: absolute !important; left: -9999px !important;
+  width: 1px !important; height: 1px !important; overflow: hidden !important; }
 
 /* ── right: conversation panel ───────────────────────────── */
 #right-rail { display: flex; flex-direction: column; flex-wrap: nowrap; height: 100%; min-height: 0;
@@ -513,12 +517,39 @@ JS = r"""
     const root = document.getElementById("app-root");
     if (!root || !root.classList.contains("modal-open")) return;
     const panel = document.getElementById("modal-panel");
-    const opener = e.target.closest(".card.clickable");
+    // #task-toggle-btn is excluded because awaazToggleTask's own btn.click() call synthesizes a
+    // brand new click event that bubbles from that hidden button - which lives outside
+    // #modal-panel - not a continuation of the checkbox's original (already-stopped) event, so
+    // without this it reads as an outside click and closes the modal the instant a task inside
+    // it is checked off.
+    const opener = e.target.closest(".card.clickable, #task-toggle-btn");
     if (panel && !panel.contains(e.target) && !opener) awaazCloseModal();
   });
   document.addEventListener("keydown", function (e) {
     if (e.key === "Escape") awaazCloseModal();
   });
+
+  // ── task checkbox: mark done/pending directly from the dashboard ──
+  // A hidden Gradio Textbox holds the task id, and a hidden Button's real .click() call fires
+  // the actual server round-trip (services.tasks.set_task_status - the same function voice/text
+  // completion already uses), which hands back fresh dashboard HTML. Deliberately NOT done by
+  // setting the textbox's value and dispatching a synthetic "input" event on it: Gradio's own
+  // reactive tracking for text-type components only updates from a real, browser-generated input
+  // event, so a JS-dispatched one is silently ignored (confirmed against this app's own
+  // already-working search box, not just this new component - a synthetic input event on it
+  // does not filter the list either). A Button's own js= hook has no such restriction: it reads
+  // the textbox's live DOM value directly at click time, bypassing Gradio's tracked value
+  // entirely, so this needs no event on the textbox at all - see task-toggle-btn's wiring in
+  // app.py. A ":"-suffixed timestamp guarantees a fresh value even when toggling the same task
+  // repeatedly in a row.
+  window.awaazToggleTask = function (event, taskId) {
+    if (event) event.stopPropagation();
+    const input = document.querySelector("#task-toggle-trigger textarea, #task-toggle-trigger input");
+    const btn = document.getElementById("task-toggle-btn");
+    if (!input || !btn) return;
+    input.value = taskId + ":" + Date.now();
+    btn.click();
+  };
 
   // ── live clock ──
   function tickClock() {
@@ -1002,18 +1033,24 @@ def weather_body(temp: str, condition: str, place: str, icon_svg: str,
 </div>"""
 
 
-def task_list(rows: list[tuple[str, str, str, bool]], empty: str) -> str:
-    """rows = [(title, tag_text, tag_class, done)]; tag_class is 'due-today'|'overdue'|'due-later'."""
+def task_list(rows: list[tuple[int, str, str, str, bool]], empty: str) -> str:
+    """rows = [(task_id, title, tag_text, tag_class, done)]; tag_class is 'due-today'|'overdue'|'due-later'.
+    The checkbox is clickable (awaazToggleTask, wired in app.py to the real tasks.set_task_status
+    backend) - event.stopPropagation() on it is what keeps a click inside the compact card from
+    also triggering the card's own onclick that opens the detail modal."""
     if not rows:
         return f'<div class="list-empty">{html.escape(empty)}</div>'
     items = []
-    for title, tag_text, tag_class, done in rows:
+    for task_id, title, tag_text, tag_class, done in rows:
         cls = "task-item done" if done else "task-item"
         tag = "done-tag" if done else tag_class
         tag_text = "Done" if done else tag_text
+        next_state = "pending" if done else "done"
         check = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">'
                 '<path stroke-linecap="round" stroke-linejoin="round" d="M4 12l5 5L20 6"/></svg>') if done else ""
-        items.append(f'<div class="{cls}"><span class="task-check">{check}</span>'
+        items.append(f'<div class="{cls}">'
+                    f'<span class="task-check" onclick="awaazToggleTask(event, {task_id})" '
+                    f'title="Mark {next_state}">{check}</span>'
                     f'<span class="task-text">{html.escape(title)}</span>'
                     f'<span class="task-tag {tag}">{html.escape(tag_text)}</span></div>')
     return f'<div class="list">{"".join(items)}</div>'
