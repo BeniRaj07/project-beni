@@ -10,20 +10,24 @@ from pathlib import Path
 
 from config import settings
 from database.json_store import JsonStore
-from database.models import ConversationsFile, RemindersFile, TasksFile, UserSettings
+from database.models import ConversationsFile, PersonalContextFile, RemindersFile, TasksFile, UserSettings
 
 conversations: JsonStore[ConversationsFile]
 reminders: JsonStore[RemindersFile]
 tasks: JsonStore[TasksFile]
 user_settings: JsonStore[UserSettings]
+personal_context: JsonStore[PersonalContextFile]
 
 
 def _build(data_dir: Path) -> None:
-    global conversations, reminders, tasks, user_settings
+    global conversations, reminders, tasks, user_settings, personal_context
     conversations = JsonStore(data_dir / "conversations.json", ConversationsFile)
     reminders = JsonStore(data_dir / "reminders.json", RemindersFile)
     tasks = JsonStore(data_dir / "tasks.json", TasksFile)
     user_settings = JsonStore(data_dir / "settings.json", UserSettings)
+    # Kept in its own file, separate from conversations/reminders/tasks, so it can be backed up,
+    # inspected or wiped independently — see services/personal_context.py's module docstring.
+    personal_context = JsonStore(data_dir / "personal_context.json", PersonalContextFile)
 
 
 def set_data_dir(data_dir: str | Path) -> None:

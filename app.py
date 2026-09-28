@@ -551,7 +551,10 @@ def build_ui() -> gr.Blocks:
 
         autoplay_cb.change(on_autoplay_change, autoplay_cb)
         audio_out.change(lambda a: gr.update(visible=a is not None), audio_out, stop_audio_btn)
-        stop_audio_btn.click(stop_audio, outputs=audio_out)
+        # js= fires first, synchronously, so playback stops instantly client-side — same guarantee
+        # barge-in already has (see theme.JS's awaazStopSpeaking) — instead of waiting on the
+        # server round-trip that clears audio_out to also silence the <audio> element.
+        stop_audio_btn.click(stop_audio, outputs=audio_out, js="() => { awaazStopSpeaking(); }")
 
         gr.Timer(REMINDER_POLL_SECONDS).tick(
             poll_due_reminders, [chatbot, active_id, convo_state, autoplay_cb],
@@ -575,7 +578,7 @@ def main() -> None:
     initial_theme = user_settings.get_settings().theme
     build_ui().queue().launch(
         server_name=settings.server_host, server_port=settings.server_port, auth=auth,
-        theme=theme.THEME, css=theme.CSS, head=theme.head(initial_theme),
+        theme=theme.THEME, css=theme.CSS, head=theme.head(initial_theme, settings.wake_phrases),
     )
 
 

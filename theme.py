@@ -10,6 +10,7 @@ weather, tasks, reminders, uptime) from data app.py hands it.
 from __future__ import annotations
 
 import html
+import json
 import math
 
 import gradio as gr
@@ -257,6 +258,11 @@ h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
   50% { box-shadow: 0 0 66px -4px rgba(79,209,255,.48), inset 0 0 42px rgba(79,209,255,.18); } }
 .orb-wrap.st-user_speaking .orb-core { border-color: rgba(239,68,68,.5);
   box-shadow: 0 0 54px -4px rgba(239,68,68,.4), inset 0 0 34px rgba(239,68,68,.14); }
+.orb-wrap.st-wake_listening .orb-core { opacity: .78; animation: orb-breathe 4.6s ease-in-out infinite; }
+.orb-wrap.st-awake .orb-core { border-color: rgba(52,211,153,.6);
+  box-shadow: 0 0 70px -2px rgba(52,211,153,.55), inset 0 0 40px rgba(52,211,153,.2); }
+.orb-wrap.st-stopped .orb-core, .orb-wrap.st-error .orb-core { border-color: rgba(242,89,107,.55);
+  box-shadow: 0 0 54px -4px rgba(242,89,107,.4), inset 0 0 34px rgba(242,89,107,.14); }
 .wave-bars { display: flex; align-items: center; gap: 4px; height: 26px; }
 .wave-bars i { width: 3px; border-radius: 3px; background: var(--accent); display: block; height: 6px;
   transition: height .09s ease; }
@@ -293,6 +299,9 @@ h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
   box-shadow: 0 0 0 4px rgba(242,89,107,.22), 0 10px 26px -8px rgba(242,89,107,.6); }
 .dock-btn--mic.speaking { animation: mic-speak-pulse 1.8s ease-in-out infinite; }
 @keyframes mic-speak-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(79,209,255,.4) } 50% { box-shadow: 0 0 0 8px rgba(79,209,255,0) } }
+.dock-btn--wake.wake-on { color: var(--good) !important; border-color: rgba(52,211,153,.5) !important;
+  box-shadow: 0 0 0 3px rgba(52,211,153,.18); animation: wake-pulse 2.4s ease-in-out infinite; }
+@keyframes wake-pulse { 0%,100% { box-shadow: 0 0 0 3px rgba(52,211,153,.18) } 50% { box-shadow: 0 0 0 6px rgba(52,211,153,.05) } }
 #end-conv-btn { min-width: 68px; height: 26px; border-radius: 13px; white-space: nowrap;
   background: rgba(242,89,107,.1); border: 1px solid rgba(242,89,107,.4); color: #f2596b !important; font-size: .7rem;
   padding: 0 10px; cursor: pointer; font-family: 'JetBrains Mono', monospace; display: none; }
@@ -457,12 +466,17 @@ h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
 
 # ── head: fonts + the small amount of client JS ─────────────────────────────
 
-def head(initial_theme: str) -> str:
+def head(initial_theme: str, wake_phrases: tuple[str, ...] = ("Hey Aawaz", "Aawaz")) -> str:
     theme = "light" if initial_theme == "light" else "dark"
+    # A plain global, set before the main script runs, is the whole "configuration point" for wake
+    # phrases: adding one is a .env edit (WAKE_PHRASES), never a code change — see config.py and
+    # README's "how to configure wake phrases".
+    phrases_json = json.dumps([p.lower() for p in wake_phrases if p.strip()])
     return f"""
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;800;900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script>document.documentElement.dataset.theme = localStorage.getItem("awaaz-theme") || "{theme}";</script>
+<script>window.AWAAZ_WAKE_PHRASES = {phrases_json};</script>
 <script>{JS}</script>
 """
 
@@ -616,10 +630,14 @@ JS = r"""
     turnTimeoutMs: vadTunable("turn_timeout_ms", 25000), // give up waiting for a reply and resume listening
   };
 
-  const STATE = { IDLE: "idle", LISTENING: "listening", USER_SPEAKING: "user_speaking",
-                 PROCESSING: "processing", ASSISTANT_SPEAKING: "assistant_speaking" };
-  const STATUS_TEXT = { idle: "Tap the mic to start", listening: "Listening…", user_speaking: "Hearing you…",
-                        processing: "Thinking…", assistant_speaking: "Speaking…" };
+  const STATE = { IDLE: "idle", WAKE_LISTENING: "wake_listening", AWAKE: "awake",
+                 LISTENING: "listening", USER_SPEAKING: "user_speaking",
+                 PROCESSING: "processing", ASSISTANT_SPEAKING: "assistant_speaking",
+                 STOPPED: "stopped", ERROR: "error" };
+  const STATUS_TEXT = { idle: "Tap the mic to start", wake_listening: "Listening for Aawaz…",
+                        awake: "Yes?", listening: "Listening…", user_speaking: "Hearing you…",
+                        processing: "Thinking…", assistant_speaking: "Speaking…",
+                        stopped: "Stopped", error: "Something went wrong" };
 
   const SESSION = {
     active: false, state: STATE.IDLE, genId: 0,
@@ -627,6 +645,11 @@ JS = r"""
     rec: null, chunks: [],
     onsetStart: 0, silenceStart: 0, utterStartedAt: 0,
     rafId: null, replyObserver: null, turnTimer: null,
+    // Wake-word listening (separate lifecycle from the VAD command session above; see
+    // startWakeListening()/onWakeWordDetected() further down). wakeMode marks a command session
+    // that was entered via a detected wake word, so it knows to return to wake-listening
+    // afterwards instead of staying hands-free open (see the reply-ended and timeout handlers).
+    wakeActive: false, wakeMode: false, wakeRecognizer: null, wakeErrorCount: 0, wakeRestartTimer: null,
   };
 
   function pickMime() {
@@ -647,14 +670,18 @@ JS = r"""
       b.classList.toggle("recording", SESSION.state === STATE.USER_SPEAKING);
       b.classList.toggle("speaking", SESSION.state === STATE.ASSISTANT_SPEAKING);
     });
-    const end = document.getElementById("end-conv-btn"); if (end) end.style.display = SESSION.active ? "" : "none";
+    document.querySelectorAll(".dock-btn--wake").forEach(function (b) {
+      b.classList.toggle("wake-on", SESSION.wakeActive);
+    });
+    const end = document.getElementById("end-conv-btn");
+    if (end) end.style.display = (SESSION.active || SESSION.wakeActive) ? "" : "none";
     const orb = document.getElementById("voice-orb");
     if (orb) {
       orb.className = "orb-wrap st-" + SESSION.state;
     }
     const pill = document.getElementById("status-pill");
     if (pill) {
-      pill.classList.toggle("live", SESSION.active && SESSION.state !== STATE.USER_SPEAKING);
+      pill.classList.toggle("live", (SESSION.active || SESSION.wakeActive) && SESSION.state !== STATE.USER_SPEAKING);
       pill.classList.toggle("hearing", SESSION.state === STATE.USER_SPEAKING);
     }
     const root = document.getElementById("app-root"); if (root) root.classList.toggle("voice-session-on", SESSION.active);
@@ -678,10 +705,12 @@ JS = r"""
   // ── session lifecycle: one mic grant, kept alive for the whole conversation ──
   async function startSession() {
     if (SESSION.active) return;
+    SESSION.wakeMode = false;    // reset here; onWakeWordDetected() sets it back true right after, if that's how we got here
     try {
       SESSION.stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
     } catch (e) {
+      setState(STATE.ERROR);
       setStatus("Microphone blocked — allow microphone access for this site, then try again.");
       return;
     }
@@ -700,6 +729,7 @@ JS = r"""
   function endSession() {
     if (!SESSION.active) return;
     SESSION.active = false;
+    SESSION.wakeMode = false;
     SESSION.genId++;                                  // invalidate anything still in flight
     if (SESSION.rafId) cancelAnimationFrame(SESSION.rafId);
     clearTurnTimeout();
@@ -713,7 +743,16 @@ JS = r"""
     stopSpeaking();
     setState(STATE.IDLE);
   }
-  window.awaazEndConversation = endSession;
+
+  // The "✕ End" button / re-tapping the mic while ANY session (full command session or passive
+  // wake-word listening) is running: a full stop of everything, never a return to wake-listening -
+  // that return only happens automatically after a wake-triggered turn finishes (see the reply
+  // "ended" handler and the turn-timeout handler further down).
+  function endEverything() {
+    stopWakeListening();
+    endSession();
+  }
+  window.awaazEndConversation = endEverything;
 
   // Onset must be sustained for VAD.onsetMs before it commits — rejects clicks, pops, brief echo spikes.
   function trackOnset(level, now, threshold, onCommit) {
@@ -801,13 +840,21 @@ JS = r"""
   function clearTurnTimeout() {
     if (SESSION.turnTimer) { clearTimeout(SESSION.turnTimer); SESSION.turnTimer = null; }
   }
+  // The shared "a turn just finished" transition: a wake-triggered session (SESSION.wakeMode)
+  // goes back to passive wake-word listening - "Idle/listening -> wake word -> ... -> return to
+  // wake-word listening mode", per spec - while a manually tap-started session stays hands-free
+  // open exactly as before (README's documented always-on barge-in behaviour is unchanged for it).
+  function returnToListening() {
+    if (SESSION.wakeMode) { endSession(); startWakeListening(); return; }
+    setState(STATE.LISTENING);
+  }
   // No reply arrived at all within this window (TTS failed, or nothing needed saying) - resume
   // listening anyway rather than waiting forever. Per-turn (myGen-gated) since a newer turn's
   // own timeout, or its reply arriving, should not be cancelled by an older turn's timer.
   function armTurnTimeout(myGen) {
     clearTurnTimeout();
     SESSION.turnTimer = setTimeout(function () {
-      if (SESSION.active && myGen === SESSION.genId && SESSION.state === STATE.PROCESSING) setState(STATE.LISTENING);
+      if (SESSION.active && myGen === SESSION.genId && SESSION.state === STATE.PROCESSING) returnToListening();
     }, VAD.turnTimeoutMs);
   }
 
@@ -853,15 +900,149 @@ JS = r"""
       a.play().catch(function () {});
       setState(STATE.ASSISTANT_SPEAKING);
       a.addEventListener("ended", function () {
-        if (SESSION.active && SESSION.state === STATE.ASSISTANT_SPEAKING) setState(STATE.LISTENING);
+        if (!SESSION.active || SESSION.state !== STATE.ASSISTANT_SPEAKING) return;
+        returnToListening();
       }, { once: true });
     });
     SESSION.replyObserver.observe(row, { childList: true, subtree: true, attributes: true, attributeFilter: ["src"] });
   }
 
   window.awaazMicTap = function () {
-    if (SESSION.active) { endSession(); return; }
+    if (SESSION.active) { endEverything(); return; }
+    stopWakeListening();   // manually taking over from passive wake-word listening, if it was on
     startSession();
+  };
+
+  // The explicit "⏹ Stop" button: unlike barge-in (which means "I'm about to talk, so stop and
+  // start listening to ME"), pressing Stop just means "stop talking" - it must not start a new
+  // utterance recording. Same instant client-side stopSpeaking() as barge-in uses, so the user
+  // never waits on a server round-trip for audio that's already playing locally to actually stop.
+  // Passes through STATE.STOPPED briefly (per spec) so the UI can show "Stopped" for a beat before
+  // the normal return-to-listening transition (wake-mode aware, same as a completed turn).
+  window.awaazStopSpeaking = function () {
+    stopSpeaking();
+    if (!SESSION.active || SESSION.state !== STATE.ASSISTANT_SPEAKING) return;
+    setState(STATE.STOPPED);
+    setTimeout(function () { if (SESSION.active && SESSION.state === STATE.STOPPED) returnToListening(); }, 450);
+  };
+
+  // ── persistent wake-word listening ──────────────────────────────────────────
+  // A second, deliberately lightweight listening mode, separate from the VAD command session
+  // above: instead of continuously recording and sending audio to Groq Whisper (expensive, and
+  // exactly what the spec says to avoid while idle), it uses the browser's own built-in speech
+  // recognizer (SpeechRecognition) purely to watch for a wake phrase locally. Only once one is
+  // heard does it hand off to the real, full-fidelity command session (startSession()).
+  // Wake phrases come from window.AWAAZ_WAKE_PHRASES (set server-side from .env's WAKE_PHRASES —
+  // see config.py) so adding one is a config change, never a code change.
+  function normalizeForMatch(s) {
+    return (s || "").toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+  }
+  function matchesWakePhrase(transcript) {
+    const norm = normalizeForMatch(transcript);
+    const phrases = (window.AWAAZ_WAKE_PHRASES && window.AWAAZ_WAKE_PHRASES.length)
+      ? window.AWAAZ_WAKE_PHRASES : ["hey aawaz", "aawaz"];
+    return phrases.some(function (p) { return norm.indexOf(normalizeForMatch(p)) !== -1; });
+  }
+  function getRecognitionCtor() { return window.SpeechRecognition || window.webkitSpeechRecognition || null; }
+
+  function startWakeListening() {
+    if (SESSION.active || SESSION.wakeActive) return;      // a real session already owns the mic
+    const Ctor = getRecognitionCtor();
+    if (!Ctor) {
+      setState(STATE.ERROR);
+      setStatus("Wake-word listening isn't supported in this browser — tap the mic instead.");
+      return;
+    }
+    SESSION.wakeActive = true;
+    SESSION.wakeErrorCount = 0;
+    setState(STATE.WAKE_LISTENING);
+    _runWakeRecognizer();
+  }
+
+  function _runWakeRecognizer() {
+    if (!SESSION.wakeActive) return;
+    const Ctor = getRecognitionCtor();
+    const rec = new Ctor();
+    SESSION.wakeRecognizer = rec;
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = "en-US";
+    rec.onresult = function (e) {
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const alt = e.results[i] && e.results[i][0];
+        if (alt && alt.transcript && matchesWakePhrase(alt.transcript)) { onWakeWordDetected(); return; }
+      }
+    };
+    rec.onerror = function (e) {
+      // "no-speech" fires routinely on every silent gap - not a real error, never counted.
+      if (e.error === "no-speech" || e.error === "aborted") return;
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+        SESSION.wakeActive = false;
+        setState(STATE.ERROR);
+        setStatus("Microphone blocked — allow microphone access to use wake-word listening.");
+        return;
+      }
+      SESSION.wakeErrorCount++;
+    };
+    rec.onend = function () {
+      if (!SESSION.wakeActive) return;      // stopped deliberately (toggled off, or wake word matched)
+      if (SESSION.wakeErrorCount > 6) {     // stop retrying forever after repeated real failures
+        SESSION.wakeActive = false;
+        setState(STATE.ERROR);
+        setStatus("Wake-word listening kept failing — tap the mic to talk instead.");
+        return;
+      }
+      // Browsers silently end "continuous" recognition after a while (commonly ~60s of quiet) -
+      // restarting here is what makes wake-word listening actually persistent, not one-shot.
+      const delay = Math.min(4000, 300 * Math.pow(2, SESSION.wakeErrorCount));
+      SESSION.wakeRestartTimer = setTimeout(function () { if (SESSION.wakeActive) _runWakeRecognizer(); }, delay);
+    };
+    try { rec.start(); } catch (e) { SESSION.wakeErrorCount++; rec.onend(); }
+  }
+
+  function stopWakeListening() {
+    if (!SESSION.wakeActive && !SESSION.wakeRecognizer) return;
+    SESSION.wakeActive = false;
+    if (SESSION.wakeRestartTimer) { clearTimeout(SESSION.wakeRestartTimer); SESSION.wakeRestartTimer = null; }
+    if (SESSION.wakeRecognizer) { try { SESSION.wakeRecognizer.stop(); } catch (e) {} SESSION.wakeRecognizer = null; }
+    if (!SESSION.active) setState(STATE.IDLE);
+    refreshUI();
+  }
+
+  // A short two-tone chime — the "activation sound/acknowledgement" — synthesised locally with
+  // the Web Audio API rather than round-tripping a file from the server, so it plays the instant
+  // the wake word is recognised (mirrors services/text_to_speech.py's notification_sound(), which
+  // uses the same two notes for the due-reminder chime, just generated client-side here for speed).
+  function playChime() {
+    try {
+      const ctx = SESSION.ctx || new (window.AudioContext || window.webkitAudioContext)();
+      [[880, 0], [1320, 0.12]].forEach(function (nf) {
+        const osc = ctx.createOscillator(); const gain = ctx.createGain();
+        osc.frequency.value = nf[0]; osc.type = "sine";
+        osc.connect(gain); gain.connect(ctx.destination);
+        const t0 = ctx.currentTime + nf[1];
+        gain.gain.setValueAtTime(0, t0);
+        gain.gain.linearRampToValueAtTime(0.18, t0 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.22);
+        osc.start(t0); osc.stop(t0 + 0.24);
+      });
+    } catch (e) {}
+  }
+
+  async function onWakeWordDetected() {
+    if (!SESSION.wakeActive) return;
+    stopWakeListening();           // release the lightweight recognizer before opening the full mic session
+    setState(STATE.AWAKE);
+    playChime();
+    await new Promise(function (r) { setTimeout(r, 260); });   // let the chime finish before recording starts
+    await startSession();
+    SESSION.wakeMode = true;       // marks this session as wake-triggered (see returnToListening())
+  }
+
+  window.awaazToggleWakeWord = function () {
+    if (SESSION.wakeActive) { stopWakeListening(); return; }
+    if (SESSION.active) return;    // a full session already has the mic; nothing to toggle
+    startWakeListening();
   };
 })();
 """
@@ -905,6 +1086,9 @@ MIC_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-wi
 KEYBOARD_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'
                '<rect x="2.5" y="6" width="19" height="12" rx="2.4"/>'
                '<path stroke-linecap="round" d="M6 10h.01M9.5 10h.01M13 10h.01M16.5 10h.01M6 14h12"/></svg>')
+EAR_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'
+          '<path stroke-linecap="round" stroke-linejoin="round" d="M8 13a5 5 0 1 1 5 5c-1.5 0-2-1-2-2v-2a2 2 0 0 0-2-2'
+          'M14.5 5.5a7 7 0 0 0-9 9.5c.6 1.4 1 2 1 3.5"/></svg>')
 
 def topbar_html() -> str:
     return f"""
@@ -944,7 +1128,7 @@ def conversation_welcome_html(language: str = "en") -> str:
 def voice_orb_html() -> str:
     """The center hero: a purely client-driven voice-session visual. No Python data — the JS
     state machine (see JS above) drives every dynamic bit of it (orb glow, wave bars, status
-    pill, mic button state) by id/class, so this only needs to render once."""
+    pill, mic/wake button state) by id/class, so this only needs to render once."""
     bars = "".join("<i></i>" for _ in range(5))
     return f"""
 <div class="orb-wrap st-idle" id="voice-orb">
@@ -955,11 +1139,13 @@ def voice_orb_html() -> str:
 <h1 class="brand-title">AWAAZ</h1>
 <div class="status-pill" id="status-pill"><span class="dot"></span><span id="mic-status">Tap the mic to start</span></div>
 <div class="dock">
-  <button class="dock-btn" onclick="awaazFocusComposer()" title="Type instead">{KEYBOARD_SVG}</button>
+  <button class="dock-btn dock-btn--wake" onclick="awaazToggleWakeWord()"
+         title="Toggle passive wake-word listening (say &quot;Hey Aawaz&quot;)">{EAR_SVG}</button>
   <div class="mic-btn-group" style="display:flex;flex-direction:column;align-items:center;gap:8px;">
     <button class="dock-btn dock-btn--mic" onclick="awaazMicTap()" title="Tap to talk hands-free">{MIC_SVG}</button>
     <button id="end-conv-btn" onclick="awaazEndConversation()" title="End the conversation">✕ End</button>
   </div>
+  <button class="dock-btn" onclick="awaazFocusComposer()" title="Type instead">{KEYBOARD_SVG}</button>
   <button class="dock-btn" onclick="awaazToggleSidebar()" title="Conversation history">{CLOCK_SVG}</button>
 </div>"""
 

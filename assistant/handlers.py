@@ -9,11 +9,13 @@ from zoneinfo import ZoneInfo
 from assistant.intent_classifier import IntentResult
 from assistant.response_generator import (
     Reply, fmt_date, fmt_datetime, fmt_month, format_matches, format_reminder_line, format_sources,
-    format_standings, format_task_line, format_weather, generate_greeting, recurrence_text,
-    standings_speech, summarize_news, t,
+    format_standings, format_task_line, format_weather, generate_general_answer, generate_greeting,
+    generate_personal_answer, recurrence_text, standings_speech, summarize_nepal_politics,
+    summarize_news, t,
 )
 from config import settings
-from services import football, news, reminders, tasks, weather
+from services import football, nepal_news, news, personal_context, reminders, tasks, weather
+from services.personal_context import PersonalContextError
 from services.http import ServiceError
 from services.reminders import ReminderError
 from services.tasks import TaskError
@@ -330,6 +332,46 @@ def handle_daily_briefing(it: IntentResult, text: str, state, now: datetime) -> 
     return build_briefing(now, it.language, report, error, city)
 
 
+# ── personal context / memory ────────────────────────────────────────────────
+
+def handle_save_personal_info(it: IntentResult, text: str, state, now: datetime) -> Reply:
+    lang = it.language
+    if not it.description:
+        return _ask(state, it, t("ask_what_to_remember", lang), "description")
+    try:
+        fact = personal_context.remember(it.title or "", it.description)
+    except PersonalContextError as e:
+        return Reply(f"⚠️ {e}", lang, it.intent)
+    return Reply(t("personal_saved", lang, title=fact.title, content=fact.content), lang, it.intent,
+                speak_text=f"Got it, I'll remember {fact.title}." if lang == "en"
+                else f"बुझें, म {fact.title} सम्झन्छु।")
+
+
+def handle_personal_query(it: IntentResult, text: str, state, now: datetime) -> Reply:
+    lang = it.language
+    facts = personal_context.search_facts(text)
+    if not facts:
+        return Reply(t("personal_not_found", lang), lang, it.intent)
+    answer = generate_personal_answer(text, lang, facts)
+    return Reply(answer, lang, it.intent)
+
+
+def handle_nepal_news(it: IntentResult, text: str, state, now: datetime) -> Reply:
+    lang = it.language
+    articles = nepal_news.fetch_nepal_political_news()
+    if not articles:
+        return Reply(t("no_nepal_news", lang), lang, it.intent)
+    summary = summarize_nepal_politics(articles, lang)
+    display = "\n\n".join([t("nepal_news_label", lang), summary, format_sources(articles, lang),
+                           "_" + t("updated", lang, when=f"{now:%Y-%m-%d %H:%M}") + " · NewsAPI_"])
+    return Reply(display, lang, it.intent, speak_text=summary)
+
+
+def handle_general_ai(it: IntentResult, text: str, state, now: datetime) -> Reply:
+    answer = generate_general_answer(text, it.language, state.history)
+    return Reply(answer, it.language, it.intent)
+
+
 def handle_out_of_scope(it: IntentResult, text: str, state, now: datetime) -> Reply:
     if it.clarification:
         return Reply(it.clarification, it.language, "clarify")
@@ -345,5 +387,8 @@ HANDLERS: dict[str, Handler] = {
     "create_task": handle_create_task, "list_tasks": handle_list_tasks, "update_task": handle_update_task,
     "complete_task": handle_complete_task, "delete_task": handle_delete_task,
     "daily_briefing": handle_daily_briefing,
+    "save_personal_info": handle_save_personal_info, "personal_query": handle_personal_query,
+    "nepal_news": handle_nepal_news,
+    "general_ai": handle_general_ai,
     "out_of_scope": handle_out_of_scope,
 }
