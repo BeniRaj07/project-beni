@@ -417,8 +417,8 @@ def build_ui() -> gr.Blocks:
         # actually triggers the server call - see its js= wiring below for why.
         task_toggle_trigger = gr.Textbox(elem_id="task-toggle-trigger", render=False)
         task_toggle_btn = gr.Button(elem_id="task-toggle-btn", render=False)
-        reminders_panel = gr.HTML(render=False)
-        tasks_panel = gr.HTML(render=False)
+        reminders_panel = gr.HTML(elem_id="reminders-card", render=False)
+        tasks_panel = gr.HTML(elem_id="tasks-card", render=False)
         weather_panel = gr.HTML(elem_id="weather-card", render=False)
         sys_stats_panel = gr.HTML(render=False)
         uptime_panel = gr.HTML(render=False)
@@ -428,6 +428,7 @@ def build_ui() -> gr.Blocks:
 
         with gr.Column(elem_id="app-root"):
             gr.HTML(theme.topbar_html())
+            gr.HTML(theme.notch_launcher_html())
 
             # off-canvas conversation drawer (opened by the ☰ / ⚙ buttons in the top bar)
             gr.HTML('<div id="scrim" onclick="awaazToggleSidebar()"></div>')

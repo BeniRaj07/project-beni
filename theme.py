@@ -152,6 +152,31 @@ h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
 .pill-icon--plus { background: linear-gradient(140deg, var(--accent-2), var(--accent)); color: #06131f !important; }
 .pill-icon--plus:hover { background: linear-gradient(140deg, var(--accent-2), var(--accent)); color: #06131f !important; filter: brightness(1.08); }
 
+/* ── Coucou-style collapse: the app starts as a small pill; #topbar/#dashboard are the
+   exact same, fully-functional UI that already exists elsewhere in this file — collapsing
+   only hides them, it never changes what they do once revealed. Defaults to collapsed (see
+   head()'s html[data-notch] init script), so a first-time visitor sees the small pill first. */
+html[data-notch="collapsed"] #topbar,
+html[data-notch="collapsed"] #dashboard { display: none !important; }
+/* !important on the override: Gradio auto-prefixes plain class rules with its own
+   `.gradio-container... .contain` scope, which inflates .notch-launcher's specificity past
+   this html[data-notch]-qualified override (whose own auto-prefixed copy can never match,
+   since `html` can never be a descendant of `.contain`) — so without !important here the
+   base `display: none` would win and the pill would never show. */
+.notch-launcher { display: none; }
+html[data-notch="collapsed"] .notch-launcher { display: flex !important; }
+
+.notch-launcher { position: fixed; z-index: 40; top: 0; left: 50%; transform: translateX(-50%);
+  align-items: center; justify-content: center; gap: 9px; height: 34px; padding: 0 18px;
+  min-width: 220px; border-radius: 0 0 20px 20px; cursor: pointer;
+  background: var(--bg); border: 1px solid var(--border); border-top: none;
+  box-shadow: 0 14px 34px -16px rgba(0,0,0,.7); font-size: .78rem; font-weight: 600;
+  color: var(--muted) !important; white-space: nowrap; transition: border-color .15s ease; }
+.notch-launcher:hover { border-color: var(--border-strong); color: var(--text) !important; }
+.notch-launcher .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); flex: none;
+  animation: pulse-dot 2.2s ease-out infinite; }
+.notch-launcher .notch-summary { font-family: 'JetBrains Mono', monospace; }
+
 /* ── dashboard grid: left cards | center orb | right conversation ───────── */
 #dashboard { position: relative; z-index: 1; flex: 1 1 auto; min-height: 0; display: grid;
   grid-template-columns: 288px minmax(360px, 1fr) 372px; gap: 16px; padding: 16px 18px;
@@ -499,6 +524,7 @@ def head(initial_theme: str, wake_phrases: tuple[str, ...] = ("Hey Aawaz", "Aawa
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;800;900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script>document.documentElement.dataset.theme = localStorage.getItem("awaaz-theme") || "{theme}";</script>
+<script>document.documentElement.dataset.notch = localStorage.getItem("awaaz-notch") || "collapsed";</script>
 <script>window.AWAAZ_WAKE_PHRASES = {phrases_json};</script>
 <script>{JS}</script>
 """
@@ -512,6 +538,16 @@ JS = r"""
     const next = html.dataset.theme === "light" ? "dark" : "light";
     html.dataset.theme = next;
     try { localStorage.setItem("awaaz-theme", next); } catch (e) {}
+  };
+
+  // ── Coucou-style collapse: the whole app starts as a small pill; this reveals the
+  // existing, fully-functional dashboard underneath unchanged — it never rebuilds any
+  // feature, it only shows/hides what's already there (see CSS: html[data-notch="collapsed"]). ──
+  window.awaazToggleNotch = function () {
+    const html = document.documentElement;
+    const next = html.dataset.notch === "collapsed" ? "expanded" : "collapsed";
+    html.dataset.notch = next;
+    try { localStorage.setItem("awaaz-notch", next); } catch (e) {}
   };
 
   // ── off-canvas conversation drawer ──
@@ -629,6 +665,22 @@ JS = r"""
   }
   setInterval(syncWeatherChip, 2000);
   document.addEventListener("DOMContentLoaded", syncWeatherChip);
+
+  // ── mirror live task/reminder counts into the collapsed notch-launcher pill ──
+  // Same plain-poll approach as syncWeatherChip above: the notch pill is purely cosmetic, so a
+  // couple of seconds' staleness is irrelevant and this avoids wiring new Gradio outputs.
+  function syncNotchSummary() {
+    const el = document.getElementById("notch-summary");
+    if (!el) return;
+    const tasksCount = document.querySelector("#tasks-card .count-pill");
+    const remCount = document.querySelector("#reminders-card .count-pill");
+    const parts = [];
+    if (tasksCount && tasksCount.textContent.trim()) parts.push(tasksCount.textContent.trim() + " tasks");
+    if (remCount && remCount.textContent.trim()) parts.push(remCount.textContent.trim() + " reminders");
+    el.textContent = parts.length ? parts.join(" · ") : "AWAAZ";
+  }
+  setInterval(syncNotchSummary, 2000);
+  document.addEventListener("DOMContentLoaded", syncNotchSummary);
 
   // ── continuous voice session with real barge-in (VAD-driven, not tap-driven) ──
   // Tap once: ONE microphone grant for the whole session. The mic stays live and is continuously
@@ -1118,6 +1170,8 @@ PLUS_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-w
            '<path d="M12 5v14M5 12h14"/></svg>')
 SPEAKER_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
               '<path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 9a4 4 0 0 1 0 6M19 6.5a7.5 7.5 0 0 1 0 11"/></svg>')
+MINIMIZE_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">'
+                '<path d="M6 12h12"/></svg>')
 
 def topbar_html() -> str:
     """Bookended by two rounded-pill icon clusters — Home / Chat / + on the left, Gear / Speaker
@@ -1131,6 +1185,7 @@ def topbar_html() -> str:
     <button class="pill-icon" onclick="awaazFocusComposer()" title="Home">{HOME_SVG}</button>
     <button class="pill-icon sidebar-opener" onclick="awaazToggleSidebar()" title="Conversations">{CHAT_SVG}</button>
     <button class="pill-icon pill-icon--plus" onclick="document.getElementById('new-chat-btn')?.click()" title="New chat">{PLUS_SVG}</button>
+    <button class="pill-icon" onclick="awaazToggleNotch()" title="Minimize">{MINIMIZE_SVG}</button>
   </div>
   <div class="brand-wrap">
     <span class="brand">AWAAZ</span>
@@ -1151,6 +1206,18 @@ def topbar_html() -> str:
     <button class="pill-icon sidebar-opener" onclick="awaazToggleSidebar()" title="Settings &amp; conversations">{GEAR_SVG}</button>
     <button class="pill-icon" onclick="awaazStopSpeaking()" title="Stop speaking">{SPEAKER_SVG}</button>
   </div>
+</div>"""
+
+
+def notch_launcher_html() -> str:
+    """The Coucou-style collapsed state: a small pill docked at the top of the page. Clicking it
+    reveals the exact same #topbar/#dashboard that already exist below it in the DOM — collapsing
+    never rebuilds or re-fetches anything, it only toggles visibility (see CSS:
+    html[data-notch="collapsed"]). #notch-summary is kept live by syncNotchSummary() in theme.JS."""
+    return """
+<div class="notch-launcher" onclick="awaazToggleNotch()">
+  <span class="dot"></span>
+  <span class="notch-summary" id="notch-summary">AWAAZ</span>
 </div>"""
 
 
