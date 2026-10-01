@@ -168,7 +168,10 @@ h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
    pill first. The pill/panel/chat-view subtree is deliberately theme-independent (hardcoded dark
    colors, not var(--bg)/var(--text)) so it reads like a fixed black notch island regardless of
    the app's own light/dark toggle underneath it. */
-html[data-notch="collapsed"] #topbar { display: none !important; }
+/* Topbar only shows alongside the full chat view, not the quick panel - the panel is meant to
+   float on its own (see the reference: mascot card + tiles, nothing above it). */
+html[data-notch="collapsed"] #topbar,
+html[data-notch="panel"] #topbar { display: none !important; }
 /* !important on both show-overrides below: Gradio auto-prefixes plain class rules with its own
    `.gradio-container... .contain` scope, which inflates the base `display: none` rules' real
    specificity past these html[data-notch]-qualified overrides (whose own auto-prefixed copies
@@ -749,12 +752,6 @@ JS = r"""
     let x = Math.min(Math.max(anchor.left, 8), window.innerWidth - pw - 8);
     let y = anchor.top + anchor.height + 10;
     if (y + ph > window.innerHeight - 8) y = Math.max(anchor.top - ph - 10, 8);
-    // The anchor is where the *pill* sat while collapsed - but opening the panel also reveals
-    // #topbar, which is taller than the pill and occupies that same top region. Without this,
-    // a pill that was never dragged (or was dragged near the top) places the panel right where
-    // the short pill used to be, which the now-visible, taller topbar actually overlaps.
-    const topbar = document.getElementById("topbar");
-    if (topbar) y = Math.max(y, topbar.getBoundingClientRect().bottom + 10);
     panel.style.left = x + "px";
     panel.style.top = y + "px";
     panel.style.transform = "none";
