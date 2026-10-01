@@ -265,21 +265,31 @@ html[data-notch="full"] #chat-view { display: flex !important; }
   --accent: #4fd1ff; --accent-2: #4b8bff; --accent-soft: rgba(79,209,255,.10);
   --good: #34d399; --good-soft: rgba(52,211,153,.12); --warn: #f5c451; --warn-soft: rgba(245,196,81,.12);
   position: fixed; z-index: 30; top: 70px; left: 50%; transform: translateX(-50%);
-  width: min(720px, calc(100vw - 32px)); height: min(760px, calc(100vh - 110px));
+  width: min(720px, calc(100vw - 32px)); height: auto; max-height: min(340px, calc(100vh - 110px));
   flex-direction: column; gap: 4px;
   background: var(--bg); border: 1px solid var(--border); border-radius: 26px;
   box-shadow: 0 30px 70px -24px rgba(0,0,0,.65); overflow: hidden;
   animation: notch-panel-in .18s ease-out; }
 #chat-view-header { position: relative; flex: none; display: flex !important; align-items: center;
-  gap: 10px; padding: 14px 16px 10px; }
-.chat-view-glow { position: absolute; top: -40%; left: 18%; width: 50%; aspect-ratio: 1;
+  gap: 10px; padding: 10px 16px; }
+.chat-view-glow { position: absolute; top: -60%; left: 10%; width: 40%; aspect-ratio: 1;
   border-radius: 50%; pointer-events: none;
   background: radial-gradient(circle, rgba(79,139,255,.22), rgba(79,139,255,0) 70%); }
-.chat-view-title { position: relative; z-index: 1; font-weight: 700; font-size: .92rem;
-  color: var(--text) !important; flex: 1; }
+/* mascot + title in their own row - see chat_view_header_html()'s docstring for why this can't
+   just rely on the outer #chat-view-header row to lay them out side by side. */
+.chat-view-brand { position: relative; z-index: 1; display: flex; align-items: center; gap: 8px; flex: 1; }
+.chat-view-title { font-weight: 700; font-size: .88rem; color: var(--text) !important; }
 #chat-view .chip-btn { position: relative; z-index: 1; }
 
-#chat-view #chatbot { padding: 0 6px; }
+/* height:auto on #chat-view above means this no longer stretches to fill a tall fixed-height
+   card while empty (conversation_welcome_html() is blank on purpose, see app.py) - min-height
+   keeps a little breathing room for the first reply, max-height plus its own scroll is what
+   kicks in once a conversation actually grows past that. */
+#chat-view #chatbot { flex: 0 1 auto; min-height: 60px; max-height: 180px; padding: 0 6px; }
+/* Gradio's own inner wrapper divs for Chatbot carry their own min-height (independent of the
+   #chatbot rule above, which only bounds the outer element) - without zeroing those too, an
+   empty conversation still reserves Gradio's default empty-state height regardless. */
+#chat-view #chatbot > div { min-height: 0 !important; }
 #chat-view #status-line { padding: 0 21px; }
 
 /* ── the mic sits right beside the composer, in the same row, instead of its own section above
@@ -1525,23 +1535,20 @@ def notch_panel_html() -> str:
 def chat_view_header_html() -> str:
     """Static header shell for #chat-view (see app.py's build_ui): mascot + an ambient glow +
     title. Placed in the same gr.Row as the real Clear/Extract gr.Button components, which need
-    real click wiring so they're not part of this raw HTML string."""
+    real click wiring so they're not part of this raw HTML string. Mascot+title are wrapped in
+    their own inline flex row here (not left to the outer Row) because Gradio renders this whole
+    gr.HTML block as a single flex child of that Row - without their own row, they'd stack
+    vertically as plain block content instead of sitting side by side, inflating the header."""
     return f"""
 <div class="chat-view-glow"></div>
-{mascot_html("md")}
-<div class="chat-view-title">Awaaz</div>"""
+<div class="chat-view-brand">{mascot_html("md")}<span class="chat-view-title">Awaaz</span></div>"""
 
 
-def conversation_welcome_html(language: str = "en") -> str:
-    if language == "ne":
-        title, sub = "आवाज सहायक", "नमस्ते! रिमाइन्डर, काम, मौसम वा फुटबल बारे सोध्नुहोस्।"
-    else:
-        title, sub = "Awaaz", "Hi! Ask about reminders, tasks, weather or football."
-    return (f"<div style='text-align:center;opacity:.75;padding-top:8vh'>"
-           f"<div style='font-size:1.8rem'>🗣️</div><div style='font-size:1.05rem;font-weight:700;margin-top:6px;"
-           f"color:var(--accent)'>{html.escape(title)}</div>"
-           f"<div style='font-size:.82rem;margin-top:4px;max-width:280px;margin-inline:auto;color:var(--muted)'>"
-           f"{html.escape(sub)}</div></div>")
+def conversation_welcome_html() -> str:
+    """Empty on purpose: the chat view's own mascot header already carries the "Awaaz" branding,
+    so an empty conversation just leaves this area blank rather than repeating a welcome message
+    - keeps the card short instead of reserving a tall block of space for it."""
+    return ""
 
 
 def voice_orb_html() -> str:
