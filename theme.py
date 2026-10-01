@@ -749,6 +749,12 @@ JS = r"""
     let x = Math.min(Math.max(anchor.left, 8), window.innerWidth - pw - 8);
     let y = anchor.top + anchor.height + 10;
     if (y + ph > window.innerHeight - 8) y = Math.max(anchor.top - ph - 10, 8);
+    // The anchor is where the *pill* sat while collapsed - but opening the panel also reveals
+    // #topbar, which is taller than the pill and occupies that same top region. Without this,
+    // a pill that was never dragged (or was dragged near the top) places the panel right where
+    // the short pill used to be, which the now-visible, taller topbar actually overlaps.
+    const topbar = document.getElementById("topbar");
+    if (topbar) y = Math.max(y, topbar.getBoundingClientRect().bottom + 10);
     panel.style.left = x + "px";
     panel.style.top = y + "px";
     panel.style.transform = "none";
