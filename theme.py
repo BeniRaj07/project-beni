@@ -187,27 +187,32 @@ html[data-notch="panel"] .notch-panel { display: flex !important; }
 .mascot .mascot-eye:nth-child(1) { left: 38%; }
 .mascot .mascot-eye:nth-child(2) { left: 62%; }
 
-/* ── collapsed: mascot + a 2x2 grid of the same feature colors used on the full dashboard
-   cards (see panel() below), just icon-only and compact. ── */
+/* ── collapsed: mascot + a 2x2 grid of dot-capsules (purely a decorative "stuff is connected"
+   indicator, like the reference — identity/labels only appear once the panel is open). Draggable
+   anywhere on screen (see awaazInitNotchDrag in theme.JS); fully rounded since it's no longer
+   pinned to the top edge, and its position is restored from localStorage on load. ── */
 .notch-launcher { position: fixed; z-index: 40; top: 0; left: 50%; transform: translateX(-50%);
-  align-items: center; justify-content: center; gap: 14px; height: 56px; padding: 0 20px 4px;
-  min-width: 190px; border-radius: 0 0 24px 24px; cursor: pointer;
-  background: #0a0a0d; border: 1px solid rgba(94,195,255,.16); border-top: none;
+  align-items: center; justify-content: center; gap: 14px; height: 52px; padding: 0 20px;
+  min-width: 190px; border-radius: 999px; cursor: grab;
+  background: #0a0a0d; border: 1px solid rgba(94,195,255,.16);
   box-shadow: 0 14px 34px -16px rgba(0,0,0,.7);
-  transition: border-color .15s ease, transform .15s ease; }
-.notch-launcher:hover { border-color: rgba(94,195,255,.32); transform: translateX(-50%) scale(1.03); }
+  transition: border-color .15s ease; touch-action: none; }
+.notch-launcher:hover { border-color: rgba(94,195,255,.32); }
+.notch-launcher.dragging { cursor: grabbing; transition: none; }
 .notch-pips { display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px; }
-.notch-pip { width: 19px; height: 19px; border-radius: 50%; display: grid; place-items: center; flex: none; }
-.notch-pip svg { width: 10px; height: 10px; color: #06131f !important; }
+.notch-pip { width: 26px; height: 15px; border-radius: 999px; display: flex; align-items: center;
+  justify-content: center; gap: 4px; flex: none; }
+.notch-pip-dot { width: 4px; height: 4px; border-radius: 50%; background: rgba(0,0,0,.55); flex: none; }
 
 /* ── panel: the compact quick view shown after tapping the pill — a status/launch card next to
-   a grid of the live feature cards, reached one tap earlier than the full dashboard. ── */
+   a grid of the live feature cards, reached one tap earlier than the full dashboard. Positioned
+   in JS (awaazOpenNotchPanel) next to wherever the pill currently is, since the pill is now
+   draggable; top/left here are just the pre-first-open fallback. ── */
 .notch-panel { position: fixed; z-index: 35; top: 54px; left: 50%; transform: translateX(-50%);
   width: min(560px, calc(100vw - 32px)); gap: 12px; padding: 14px;
   background: #0a0a0d; border: 1px solid rgba(94,195,255,.16); border-radius: 22px;
   box-shadow: 0 24px 60px -20px rgba(0,0,0,.65); animation: notch-panel-in .18s ease-out; }
-@keyframes notch-panel-in { from { opacity: 0; transform: translateX(-50%) translateY(-8px); }
-  to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+@keyframes notch-panel-in { from { opacity: 0; } to { opacity: 1; } }
 
 .notch-hero { flex: 1; display: flex; align-items: center; gap: 12px; padding: 14px;
   border-radius: 16px; background: #14161d; border: 1px solid rgba(94,195,255,.14);
@@ -283,6 +288,7 @@ html[data-notch="panel"] .notch-panel { display: flex !important; }
 .badge-green { background: linear-gradient(140deg, #6ee7b7, #34d399); }
 .badge-amber { background: linear-gradient(140deg, #fde68a, #f5c451); }
 .badge-purple { background: linear-gradient(140deg, #c4b5fd, #a78bfa); }
+.badge-pink { background: linear-gradient(140deg, #fda4af, #fb7185); }
 .count-pill { font-size: .68rem; font-weight: 600; color: var(--muted) !important; background: rgba(255,255,255,.03);
   border: 1px solid var(--border); padding: 2px 8px; border-radius: 999px; white-space: nowrap;
   font-family: 'JetBrains Mono', monospace; }
@@ -642,6 +648,101 @@ JS = r"""
           eye.style.transform = "translate(calc(-50% + " + ex + "px), calc(-50% + " + ey + "px))";
         });
       });
+    });
+  })();
+
+  // ── draggable pill: drag it anywhere on screen; a plain click (no real movement) still opens
+  // the quick panel, anchored next to wherever the pill currently sits. Position persists across
+  // reloads via localStorage. Listeners are delegated on document (not attached directly to the
+  // pill) because this script runs before Gradio has necessarily rendered .notch-launcher into
+  // the DOM yet - same reasoning as the setInterval-based syncs elsewhere in this file, just via
+  // delegation instead of polling, since mousedown/mousemove/mouseup all need document-wide reach
+  // anyway (a drag's pointer routinely leaves the pill's own bounds mid-gesture). ──
+  // This always runs one animation frame after the state switch that reveals the panel - by
+  // which point CSS has already hidden .notch-launcher (display: none), so getBoundingClientRect
+  // on it would read all zeros. Its inline left/top (set by the drag/restore code below) stay
+  // readable regardless of visibility, so those are the source of truth here instead.
+  function awaazPillAnchor() {
+    const pill = document.querySelector(".notch-launcher");
+    if (!pill) return null;
+    const w = pill.offsetWidth || 220, h = pill.offsetHeight || 52;
+    if (pill.style.left && pill.style.top) {
+      return { left: parseFloat(pill.style.left), top: parseFloat(pill.style.top), width: w, height: h };
+    }
+    // Never dragged yet: mirror the CSS default (top: 0, horizontally centered).
+    return { left: window.innerWidth / 2 - w / 2, top: 0, width: w, height: h };
+  }
+  function awaazPositionNotchPanel() {
+    const panel = document.querySelector(".notch-panel");
+    const anchor = awaazPillAnchor();
+    if (!panel || !anchor) return;
+    const pw = panel.offsetWidth, ph = panel.offsetHeight;
+    let x = Math.min(Math.max(anchor.left, 8), window.innerWidth - pw - 8);
+    let y = anchor.top + anchor.height + 10;
+    if (y + ph > window.innerHeight - 8) y = Math.max(anchor.top - ph - 10, 8);
+    panel.style.left = x + "px";
+    panel.style.top = y + "px";
+    panel.style.transform = "none";
+  }
+  (function () {
+    const POS_KEY = "awaaz-notch-pos";
+    function clamp(pill, x, y) {
+      return {
+        x: Math.min(Math.max(x, 4), window.innerWidth - pill.offsetWidth - 4),
+        y: Math.min(Math.max(y, 0), window.innerHeight - pill.offsetHeight - 4),
+      };
+    }
+    function place(pill, x, y) {
+      pill.style.left = x + "px";
+      pill.style.top = y + "px";
+      pill.style.transform = "none";
+    }
+    // Restore a saved position the first time the pill exists in the DOM.
+    let restored = false;
+    const restoreTimer = setInterval(function () {
+      const pill = document.querySelector(".notch-launcher");
+      if (!pill) return;
+      clearInterval(restoreTimer);
+      restored = true;
+      let saved = null;
+      try { saved = JSON.parse(localStorage.getItem(POS_KEY) || "null"); } catch (e) {}
+      if (saved) { const p = clamp(pill, saved.x, saved.y); place(pill, p.x, p.y); }
+    }, 150);
+
+    let dragging = false, moved = false, startX = 0, startY = 0, originX = 0, originY = 0;
+    document.addEventListener("mousedown", function (e) {
+      const pill = e.target.closest(".notch-launcher");
+      if (!pill) return;
+      dragging = true; moved = false;
+      startX = e.clientX; startY = e.clientY;
+      const r = pill.getBoundingClientRect();
+      originX = r.left; originY = r.top;
+      pill.classList.add("dragging");
+      e.preventDefault();
+    });
+    document.addEventListener("mousemove", function (e) {
+      if (!dragging) return;
+      const pill = document.querySelector(".notch-launcher");
+      if (!pill) return;
+      const dx = e.clientX - startX, dy = e.clientY - startY;
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) moved = true;
+      const p = clamp(pill, originX + dx, originY + dy);
+      place(pill, p.x, p.y);
+    });
+    document.addEventListener("mouseup", function () {
+      if (!dragging) return;
+      dragging = false;
+      const pill = document.querySelector(".notch-launcher");
+      if (pill) pill.classList.remove("dragging");
+      if (moved) {
+        if (pill) {
+          const r = pill.getBoundingClientRect();
+          try { localStorage.setItem(POS_KEY, JSON.stringify({ x: r.left, y: r.top })); } catch (e) {}
+        }
+      } else {
+        awaazSetNotch("panel");
+        requestAnimationFrame(awaazPositionNotchPanel);
+      }
     });
   })();
 
@@ -1281,7 +1382,7 @@ def topbar_html() -> str:
     <button class="pill-icon" onclick="awaazFocusComposer()" title="Home">{HOME_SVG}</button>
     <button class="pill-icon sidebar-opener" onclick="awaazToggleSidebar()" title="Conversations">{CHAT_SVG}</button>
     <button class="pill-icon pill-icon--plus" onclick="document.getElementById('new-chat-btn')?.click()" title="New chat">{PLUS_SVG}</button>
-    <button class="pill-icon" onclick="awaazSetNotch('panel')" title="Minimize">{MINIMIZE_SVG}</button>
+    <button class="pill-icon" onclick="awaazSetNotch('panel'); requestAnimationFrame(awaazPositionNotchPanel)" title="Minimize">{MINIMIZE_SVG}</button>
   </div>
   <div class="brand-wrap">
     <span class="brand">AWAAZ</span>
@@ -1312,16 +1413,18 @@ def mascot_html(size: str = "sm") -> str:
 
 
 def notch_launcher_html() -> str:
-    """The Coucou-style collapsed state: a small pill docked at the top of the page — the mascot
-    plus the same four feature colors used on the full dashboard cards (see panel() below),
-    icon-only. Clicking it opens notch_panel_html()'s quick view; nothing here is rebuilt or
-    refetched, state switches only toggle visibility (see CSS: html[data-notch])."""
+    """The Coucou-style collapsed state: a small pill, draggable anywhere on screen (see
+    awaazInitNotchDrag in theme.JS), with the mascot plus a purely decorative 2x2 grid of
+    dot-capsules (no icons/labels - those only appear once the panel below is open). A plain
+    click (no real movement) opens notch_panel_html()'s quick view; nothing here is ever rebuilt
+    or refetched, state switches only toggle visibility (see CSS: html[data-notch]). No onclick
+    here - open-vs-drag is decided in JS so a drag never also fires a click."""
     pips = "".join(
-        f'<span class="notch-pip badge-{color}">{icon}</span>'
-        for color, icon in (("green", CHECKLIST_SVG), ("amber", BELL_SVG), ("sky", CLOUD_SVG), ("blue", CPU_SVG))
+        f'<span class="notch-pip badge-{color}"><span class="notch-pip-dot"></span><span class="notch-pip-dot"></span></span>'
+        for color in ("green", "amber", "purple", "pink")
     )
     return f"""
-<div class="notch-launcher" onclick="awaazSetNotch('panel')">
+<div class="notch-launcher">
   {mascot_html("sm")}
   <div class="notch-pips">{pips}</div>
 </div>"""
