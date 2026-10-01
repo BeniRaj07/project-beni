@@ -272,7 +272,7 @@ def system_stats_html(cpu_pct: float) -> str:
     disk = psutil.disk_usage(str(Path(settings.data_dir).anchor or "/"))
     body = theme.system_stats_body(
         cpu_pct, vm.percent, vm.used / 1e9, vm.total / 1e9, disk.used / 1e9, disk.total / 1e9)
-    return theme.panel("System Stats", body, icon_svg=theme.CPU_SVG)
+    return theme.panel("System Stats", body, icon_svg=theme.CPU_SVG, badge="blue")
 
 
 def uptime_html(cpu_pct: float) -> str:
@@ -283,7 +283,7 @@ def uptime_html(cpu_pct: float) -> str:
     load_label = "High" if cpu_pct >= 70 else ("Moderate" if cpu_pct >= 30 else "Low")
     body = theme.uptime_body(int(_APP_START_EPOCH_S * 1000), uptime_str, _session_count, _command_count,
                              cpu_pct, load_label)
-    return theme.panel("System Uptime", body, icon_svg=theme.CLOCK_SVG)
+    return theme.panel("System Uptime", body, icon_svg=theme.CLOCK_SVG, badge="purple")
 
 
 def dashboard_panels(state: ConversationState | None):
@@ -301,7 +301,8 @@ def dashboard_panels(state: ConversationState | None):
                 r.local_due.date() == today)
                for r in all_rems]
     reminders_html = theme.panel("Reminders", theme.reminder_list(rem_rows[:8], "No upcoming reminders"),
-                                 len(all_rems), icon_svg=theme.BELL_SVG, onclick="awaazOpenModal('reminders')")
+                                 len(all_rems), icon_svg=theme.BELL_SVG, onclick="awaazOpenModal('reminders')",
+                                 badge="amber")
     reminders_modal_html = theme.modal_section("All Reminders", theme.BELL_SVG,
                                                theme.reminder_list(rem_rows, "No upcoming reminders"))
 
@@ -314,7 +315,7 @@ def dashboard_panels(state: ConversationState | None):
     progress_html = theme.progress_bar(prog.percent, f"{prog.completed}/{prog.total} · {fmt_month(month)}")
     tasks_body = theme.task_list(task_rows[:8], "No tasks this month") + progress_html
     tasks_html = theme.panel("Tasks", tasks_body, f"{prog.completed}/{prog.total}", icon_svg=theme.CHECKLIST_SVG,
-                             onclick="awaazOpenModal('tasks')")
+                             onclick="awaazOpenModal('tasks')", badge="green")
     tasks_modal_html = theme.modal_section(
         f"Tasks — {fmt_month(month)}", theme.CHECKLIST_SVG,
         theme.task_list(task_rows, "No tasks this month") + progress_html)
@@ -343,7 +344,7 @@ def dashboard_panels(state: ConversationState | None):
         weather_html_body = theme.weather_body("--", error or "unavailable", city, theme.CLOUD_SVG)
         weather_modal_body = weather_html_body
     weather_html = theme.panel("Weather", weather_html_body, icon_svg=theme.CLOUD_SVG,
-                               onclick="awaazOpenModal('weather')")
+                               onclick="awaazOpenModal('weather')", badge="sky")
     weather_modal_html = theme.modal_section("7-Day Forecast", theme.CLOUD_SVG, weather_modal_body)
 
     # One shared reading: psutil.cpu_percent(interval=None) measures usage since its OWN last

@@ -110,9 +110,6 @@ h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
 #topbar { position: relative; z-index: 3; display: flex; align-items: center; gap: 14px;
   padding: 10px 18px; border-bottom: 1px solid var(--border);
   background: linear-gradient(180deg, var(--panel-2), var(--panel)) !important; flex-wrap: wrap; }
-#menu-btn { background: rgba(79,139,255,.08) !important; border: 1px solid var(--border) !important;
-  color: var(--accent) !important; min-width: 38px; height: 38px; border-radius: 10px !important; }
-#menu-btn svg { width: 18px !important; height: 18px !important; flex: none; }
 #topbar .brand-wrap { display: flex; align-items: center; gap: 10px; }
 #topbar .brand { font-weight: 800; font-size: 1.05rem; letter-spacing: .28em;
   background-image: linear-gradient(120deg, var(--accent), var(--accent-2)) !important;
@@ -139,6 +136,21 @@ h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
   cursor: pointer; transition: .15s ease; }
 .hud-icon:hover { color: var(--accent) !important; border-color: var(--border-strong) !important; background: var(--accent-soft); }
 .hud-icon svg { width: 17px; height: 17px; }
+
+/* ── notch-pill icon clusters (Home / Chat / + on the left, Gear / Speaker on the right) ──
+   A rounder, fully-circular take on .hud-icon for the two button groups bookending the top
+   bar — purely a shape/shell treatment, each icon still fires a real existing action (see
+   topbar_html()), never a decorative no-op. */
+.pill-cluster { display: flex; align-items: center; gap: 6px; padding: 5px; border-radius: 999px;
+  background: rgba(255,255,255,.025); border: 1px solid var(--border); flex: none; }
+.pill-icon { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+  background: transparent; border: none; color: var(--muted) !important; cursor: pointer;
+  transition: color .15s ease, background .15s ease, transform .1s ease; }
+.pill-icon:hover { color: var(--accent) !important; background: var(--accent-soft); }
+.pill-icon:active { transform: scale(.92); }
+.pill-icon svg { width: 16px; height: 16px; }
+.pill-icon--plus { background: linear-gradient(140deg, var(--accent-2), var(--accent)); color: #06131f !important; }
+.pill-icon--plus:hover { background: linear-gradient(140deg, var(--accent-2), var(--accent)); color: #06131f !important; filter: brightness(1.08); }
 
 /* ── dashboard grid: left cards | center orb | right conversation ───────── */
 #dashboard { position: relative; z-index: 1; flex: 1 1 auto; min-height: 0; display: grid;
@@ -168,7 +180,7 @@ h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
 @media (max-width: 1180px) { #center-screen, #right-rail { height: auto; min-height: 480px; } }
 
 .card { background: linear-gradient(180deg, var(--panel-2), var(--panel)); border: 1px solid var(--border);
-  border-radius: 14px; padding: 14px 15px 14px; box-shadow: 0 14px 34px -20px rgba(0,0,0,.6); flex: none; }
+  border-radius: 20px; padding: 14px 15px 14px; box-shadow: 0 14px 34px -20px rgba(0,0,0,.6); flex: none; }
 .card.clickable { cursor: pointer; transition: border-color .15s ease, transform .15s ease; }
 .card.clickable:hover { border-color: var(--border-strong); transform: translateY(-1px); }
 .card.clickable:active { transform: translateY(0); }
@@ -176,6 +188,17 @@ h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
 .card-title { display: flex; align-items: center; gap: 8px; font-size: .82rem; font-weight: 700;
   color: var(--text) !important; letter-spacing: .02em; }
 .card-title svg { width: 15px; height: 15px; color: var(--accent) !important; flex: none; }
+
+/* ── per-card colored icon badge (Coucou-style integration dots: each card gets its own hue
+   instead of sharing one global accent colour, so the left rail reads as a set of distinct
+   cards at a glance) — wraps the existing icon_svg, doesn't replace it. */
+.card-title .badge { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+.card-title .badge svg { width: 13px; height: 13px; color: #06131f !important; }
+.badge-blue { background: linear-gradient(140deg, #6fd8ff, #4b8bff); }
+.badge-sky { background: linear-gradient(140deg, #8fe8ff, #4fd1ff); }
+.badge-green { background: linear-gradient(140deg, #6ee7b7, #34d399); }
+.badge-amber { background: linear-gradient(140deg, #fde68a, #f5c451); }
+.badge-purple { background: linear-gradient(140deg, #c4b5fd, #a78bfa); }
 .count-pill { font-size: .68rem; font-weight: 600; color: var(--muted) !important; background: rgba(255,255,255,.03);
   border: 1px solid var(--border); padding: 2px 8px; border-radius: 999px; white-space: nowrap;
   font-family: 'JetBrains Mono', monospace; }
@@ -408,7 +431,7 @@ h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
 #app-root.modal-open #modal-backdrop { opacity: 1; pointer-events: auto; }
 #modal-panel { position: fixed; z-index: 91; top: 50%; left: 50%; width: min(560px, 92vw); max-height: 82vh;
   background: linear-gradient(180deg, var(--panel-2), var(--panel)) !important;
-  border: 1px solid var(--border-strong) !important; border-radius: 16px !important;
+  border: 1px solid var(--border-strong) !important; border-radius: 22px !important;
   box-shadow: 0 30px 70px -20px rgba(0,0,0,.6); display: flex !important; flex-direction: column !important;
   flex-wrap: nowrap !important; opacity: 0; pointer-events: none; overflow: hidden;
   transform: translate(-50%, -46%); transition: opacity .18s ease, transform .18s ease; }
@@ -500,7 +523,7 @@ JS = r"""
     const root = document.getElementById("app-root");
     if (!root || !root.classList.contains("sidebar-open")) return;
     const sidebar = document.getElementById("sidebar");
-    const opener = e.target.closest("#menu-btn, #history-btn");
+    const opener = e.target.closest("#menu-btn, #history-btn, .sidebar-opener");
     if (sidebar && !sidebar.contains(e.target) && !opener) root.classList.remove("sidebar-open");
   });
 
@@ -1062,8 +1085,6 @@ def sidebar_header_html() -> str:
 GEAR_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'
            '<circle cx="12" cy="12" r="3.2"/><path d="M12 3v2.2M12 18.8V21M21 12h-2.2M5.2 12H3M18.4 5.6l-1.5 1.5'
            'M7.1 16.9l-1.5 1.5M18.4 18.4l-1.5-1.5M7.1 7.1 5.6 5.6"/></svg>')
-MENU_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round">'
-           '<path d="M4 7h16M4 12h16M4 17h16"/></svg>')
 CPU_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'
           '<rect x="6" y="6" width="12" height="12" rx="2"/><path stroke-linecap="round" '
           'd="M9 3v2M15 3v2M9 19v2M15 19v2M3 9h2M3 15h2M19 9h2M19 15h2"/></svg>')
@@ -1089,11 +1110,28 @@ KEYBOARD_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stro
 EAR_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'
           '<path stroke-linecap="round" stroke-linejoin="round" d="M8 13a5 5 0 1 1 5 5c-1.5 0-2-1-2-2v-2a2 2 0 0 0-2-2'
           'M14.5 5.5a7 7 0 0 0-9 9.5c.6 1.4 1 2 1 3.5"/></svg>')
+HOME_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
+           '<path d="M4 11.5 12 4l8 7.5"/><path d="M6 10v9a1 1 0 0 0 1 1h3v-5h4v5h3a1 1 0 0 0 1-1v-9"/></svg>')
+CHAT_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
+           '<path d="M4 5.5h16v10H9l-4 3.5v-3.5H4z"/></svg>')
+PLUS_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round">'
+           '<path d="M12 5v14M5 12h14"/></svg>')
+SPEAKER_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
+              '<path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 9a4 4 0 0 1 0 6M19 6.5a7.5 7.5 0 0 1 0 11"/></svg>')
 
 def topbar_html() -> str:
+    """Bookended by two rounded-pill icon clusters — Home / Chat / + on the left, Gear / Speaker
+    on the right — each firing a real existing action (never decorative chrome):
+    Home focuses the composer, Chat opens the conversation drawer, + starts a new conversation
+    (forwarded to the real, already-wired #new-chat-btn), Gear opens the same drawer to its
+    settings footer, Speaker stops whatever Awaaz is currently speaking."""
     return f"""
 <div id="topbar">
-  <button id="menu-btn" onclick="awaazToggleSidebar()" title="Conversations">{MENU_SVG}</button>
+  <div class="pill-cluster">
+    <button class="pill-icon" onclick="awaazFocusComposer()" title="Home">{HOME_SVG}</button>
+    <button class="pill-icon sidebar-opener" onclick="awaazToggleSidebar()" title="Conversations">{CHAT_SVG}</button>
+    <button class="pill-icon pill-icon--plus" onclick="document.getElementById('new-chat-btn')?.click()" title="New chat">{PLUS_SVG}</button>
+  </div>
   <div class="brand-wrap">
     <span class="brand">AWAAZ</span>
     <span class="status-tag"><span class="dot"></span>Online</span>
@@ -1109,7 +1147,10 @@ def topbar_html() -> str:
     <strong class="mono" id="topbar-weather-temp">--°C</strong>
     <span class="city" id="topbar-weather-place">···</span>
   </div>
-  <div class="hud-icon" onclick="awaazToggleSidebar()" title="Settings &amp; conversations">{GEAR_SVG}</div>
+  <div class="pill-cluster">
+    <button class="pill-icon sidebar-opener" onclick="awaazToggleSidebar()" title="Settings &amp; conversations">{GEAR_SVG}</button>
+    <button class="pill-icon" onclick="awaazStopSpeaking()" title="Stop speaking">{SPEAKER_SVG}</button>
+  </div>
 </div>"""
 
 
@@ -1153,11 +1194,14 @@ def voice_orb_html() -> str:
 # ── dashboard widgets (pure HTML builders — app.py supplies the data) ───────
 
 def panel(title: str, body_html: str, count: int | str | None = None, icon_svg: str = "",
-         onclick: str = "") -> str:
+         onclick: str = "", badge: str = "blue") -> str:
+    """badge: 'blue' | 'sky' | 'green' | 'amber' | 'purple' — one of the badge-* classes in CSS,
+    so each dashboard card reads as a distinct colour at a glance (see app.py call sites)."""
     n = f'<span class="count-pill">{html.escape(str(count))}</span>' if count is not None else ""
     cls = "card clickable" if onclick else "card"
     click_attr = f' onclick="{html.escape(onclick, quote=True)}"' if onclick else ""
-    return (f'<div class="{cls}"{click_attr}><div class="card-head"><div class="card-title">{icon_svg}'
+    icon = f'<span class="badge badge-{html.escape(badge, quote=True)}">{icon_svg}</span>' if icon_svg else ""
+    return (f'<div class="{cls}"{click_attr}><div class="card-head"><div class="card-title">{icon}'
            f'<span>{html.escape(title)}</span></div>{n}</div>{body_html}</div>')
 
 
