@@ -152,19 +152,17 @@ h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
 .pill-icon--plus { background: linear-gradient(140deg, var(--accent-2), var(--accent)); color: #06131f !important; }
 .pill-icon--plus:hover { background: linear-gradient(140deg, var(--accent-2), var(--accent)); color: #06131f !important; filter: brightness(1.08); }
 
-/* ── Coucou-style 4-state notch: collapsed (small pill) -> panel (quick view) -> full (a new
-   minimal mascot + "Ask me anything" chat view) -> dashboard (the exact same, fully-functional
-   #topbar/#dashboard that already existed here before). Switching states never rebuilds or
-   refetches anything, it only shows/hides what's already there. Defaults to collapsed (see
-   head()'s html[data-notch] init script), so a first-time visitor sees the small pill first.
-   The pill/panel/chat-view subtree is deliberately theme-independent (hardcoded dark colors, not
-   var(--bg)/var(--text)) so it reads like a fixed black notch island regardless of the app's own
-   light/dark toggle underneath it. */
+/* ── Coucou-style 3-state notch: collapsed (small pill) -> panel (quick view) -> full (the
+   mascot + live conversation + voice + text chat view - the only "opened" interface now; the
+   old stats/orb/sidebar dashboard grid was removed, its functionality folded in here, in
+   modals, and in the always-present sidebar - see app.py's build_ui()). Switching states never
+   rebuilds or refetches anything, it only shows/hides what's already there. Defaults to
+   collapsed (see head()'s html[data-notch] init script), so a first-time visitor sees the small
+   pill first. The pill/panel/chat-view subtree is deliberately theme-independent (hardcoded dark
+   colors, not var(--bg)/var(--text)) so it reads like a fixed black notch island regardless of
+   the app's own light/dark toggle underneath it. */
 html[data-notch="collapsed"] #topbar { display: none !important; }
-html[data-notch="collapsed"] #dashboard,
-html[data-notch="panel"] #dashboard,
-html[data-notch="full"] #dashboard { display: none !important; }
-/* !important on all show-overrides below: Gradio auto-prefixes plain class rules with its own
+/* !important on both show-overrides below: Gradio auto-prefixes plain class rules with its own
    `.gradio-container... .contain` scope, which inflates the base `display: none` rules' real
    specificity past these html[data-notch]-qualified overrides (whose own auto-prefixed copies
    can never match, since `html` can never be a descendant of `.contain`) — so without
@@ -182,13 +180,13 @@ html[data-notch="full"] #chat-view { display: flex !important; }
   animation: mascot-bob 3.4s ease-in-out infinite; }
 @keyframes mascot-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
 .mascot-sm { width: 30px; height: 26px; }
+.mascot-md { width: 42px; height: 36px; }
 .mascot-lg { width: 60px; height: 52px; }
-.mascot-xl { width: 92px; height: 80px; }
 .mascot-eye { position: absolute; top: 48%; border-radius: 50%; background: #1b1d24;
   transform: translate(-50%, -50%); transition: transform .06s ease-out; }
 .mascot-sm .mascot-eye { width: 4px; height: 4px; }
+.mascot-md .mascot-eye { width: 5px; height: 5px; }
 .mascot-lg .mascot-eye { width: 7px; height: 7px; }
-.mascot-xl .mascot-eye { width: 10px; height: 10px; }
 .mascot .mascot-eye:nth-child(1) { left: 38%; }
 .mascot .mascot-eye:nth-child(2) { left: 62%; }
 
@@ -246,69 +244,69 @@ html[data-notch="full"] #chat-view { display: flex !important; }
   .notch-panel { flex-direction: column; }
 }
 
-/* ── full: the minimal chat view "Open Awaaz" opens into — a floating rounded card below
-   #topbar (unchanged) with the mascot and a single "Ask me anything" input. Purely a launcher:
-   submitting it forwards into the real composer and switches to "dashboard" (see
-   awaazSendFromMini in theme.JS) rather than running its own chat pipeline. The grid icon in the
-   corner reaches that full dashboard directly for Tasks/Reminders/Weather/System detail this
-   view doesn't show. ── */
-#chat-view { position: fixed; z-index: 30; top: 70px; left: 50%; transform: translateX(-50%);
-  width: min(620px, calc(100vw - 32px)); height: min(420px, calc(100vh - 110px));
-  flex-direction: column; align-items: center; justify-content: center; gap: 22px;
-  background: #0a0a0d; border: 1px solid rgba(94,195,255,.14); border-radius: 26px;
+/* ── full: the only "opened" interface now — a floating rounded card below #topbar (unchanged)
+   holding the mascot, the live conversation (the real gr.Chatbot, relocated here - see app.py),
+   voice controls (the real voice orb + dock, just compact-sized below) and the real text
+   composer. Nothing here is a second copy of anything - these are the exact same components the
+   old dashboard used, just rendered in this container instead. Its own CSS custom properties are
+   redeclared with fixed dark values (not inherited from :root) so every theme-aware component
+   embedded in it (chatbot bubbles, orb, status pill, dock, composer) stays legible against this
+   always-dark card regardless of the app's own light/dark toggle. ── */
+#chat-view {
+  --bg: #0a0a0d; --panel: #14161d; --panel-2: #14161d; --border: rgba(94,195,255,.16);
+  --border-strong: rgba(94,195,255,.32); --text: #e9f1fb; --muted: #8a97ad; --faint: #566378;
+  --accent: #4fd1ff; --accent-2: #4b8bff; --accent-soft: rgba(79,209,255,.10);
+  --good: #34d399; --good-soft: rgba(52,211,153,.12); --warn: #f5c451; --warn-soft: rgba(245,196,81,.12);
+  position: fixed; z-index: 30; top: 70px; left: 50%; transform: translateX(-50%);
+  width: min(720px, calc(100vw - 32px)); height: min(760px, calc(100vh - 110px));
+  flex-direction: column; gap: 4px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 26px;
   box-shadow: 0 30px 70px -24px rgba(0,0,0,.65); overflow: hidden;
   animation: notch-panel-in .18s ease-out; }
-.chat-view-glow { position: absolute; top: 20%; left: 50%; width: 70%; aspect-ratio: 1;
-  transform: translateX(-50%); border-radius: 50%; pointer-events: none;
+#chat-view-header { position: relative; flex: none; display: flex !important; align-items: center;
+  gap: 10px; padding: 14px 16px 10px; }
+.chat-view-glow { position: absolute; top: -40%; left: 18%; width: 50%; aspect-ratio: 1;
+  border-radius: 50%; pointer-events: none;
   background: radial-gradient(circle, rgba(79,139,255,.22), rgba(79,139,255,0) 70%); }
-.chat-view-dash-btn { position: absolute; top: 14px; right: 14px; width: 30px; height: 30px;
-  display: grid; place-items: center; border-radius: 50%; background: rgba(255,255,255,.04);
-  border: 1px solid rgba(94,195,255,.14); color: #8a97ad; cursor: pointer;
-  transition: border-color .15s ease, color .15s ease; }
-.chat-view-dash-btn:hover { border-color: rgba(94,195,255,.32); color: #e9f1fb; }
-.chat-view-dash-btn svg { width: 15px; height: 15px; }
-.chat-ask-bar { position: relative; z-index: 1; display: flex; align-items: center; gap: 10px;
-  width: min(420px, 86%); padding: 6px 6px 6px 18px; border-radius: 999px;
-  background: rgba(255,255,255,.05); border: 1px solid rgba(94,195,255,.18); }
-#mini-ask-input { flex: 1; min-width: 0; background: transparent; border: none; outline: none;
-  font: inherit; font-size: .88rem; color: #e9f1fb; }
-#mini-ask-input::placeholder { color: #6f7c92; }
-.chat-ask-send { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid;
-  place-items: center; background: #f4f6fa; color: #0a0a0d; border: none; cursor: pointer;
-  transition: transform .1s ease; }
-.chat-ask-send:hover { transform: scale(1.06); }
-.chat-ask-send svg { width: 16px; height: 16px; }
+.chat-view-title { position: relative; z-index: 1; font-weight: 700; font-size: .92rem;
+  color: var(--text) !important; flex: 1; }
+#chat-view .chip-btn { position: relative; z-index: 1; }
+
+#chat-view #chatbot { padding: 0 6px; }
+#chat-view #status-line { padding: 0 21px; }
+
+/* compact voice controls: the exact same orb/status-pill/dock markup from the old dashboard
+   hero, just sized down to fit a row here instead of a full-screen centerpiece. */
+#voice-orb-wrap { flex: none; display: flex !important; align-items: center; justify-content: center;
+  gap: 10px; flex-wrap: wrap; padding: 6px 16px; }
+#voice-orb-wrap .brand-title { display: none; }
+#voice-orb-wrap .orb-wrap { width: 46px; height: 46px; }
+#voice-orb-wrap .ring-1, #voice-orb-wrap .ring-2 { display: none; }
+#voice-orb-wrap .orb-core { width: 46px; height: 46px; }
+#voice-orb-wrap .wave-bars { height: 12px; }
+#voice-orb-wrap .status-pill { font-size: .72rem; padding: 4px 11px; }
+#voice-orb-wrap .dock { gap: 8px; }
+#voice-orb-wrap .dock-btn { width: 32px; height: 32px; }
+#voice-orb-wrap .dock-btn svg { width: 14px; height: 14px; flex: none; }
+#voice-orb-wrap .dock-btn--mic { width: 40px; height: 40px; }
+#voice-orb-wrap #end-conv-btn { height: 22px; min-width: 56px; font-size: .62rem; }
+
+#chat-view #composer-wrap { padding: 8px 16px 16px; border-top: none; }
+#chat-view #composer-input textarea, #chat-view #composer-input input {
+  background: rgba(255,255,255,.05) !important; border-radius: 999px !important; padding: 10px 16px !important; }
+#chat-view #send-btn { border-radius: 50% !important; background: var(--text) !important;
+  color: var(--bg) !important; }
 
 @media (max-width: 480px) {
   #chat-view { width: calc(100vw - 24px); }
 }
 
-/* ── dashboard grid: left cards | center orb | right conversation ───────── */
-#dashboard { position: relative; z-index: 1; flex: 1 1 auto; min-height: 0; display: grid;
-  grid-template-columns: 288px minmax(360px, 1fr) 372px; gap: 16px; padding: 16px 18px;
-  grid-auto-rows: 100%; }
-/* CSS Grid's auto-row sizing doesn't reliably measure a flex-wrap child's true content height
-   (the #left-rail column of cards), so narrow screens drop the grid entirely for a plain
-   vertical flex stack instead - simpler and predictable rather than fighting that sizing quirk.
-   flex:none on the three sections is required here too: Gradio's own Column CSS defaults every
-   gr.Column to flex:1 1 0%, which - once #dashboard itself becomes a flex container - divides
-   its height evenly across all three regardless of their actual content, instead of sizing each
-   to fit; the overflow then spills silently onto the next section instead of pushing it down. */
-@media (max-width: 1180px) { #dashboard { display: flex; flex-direction: column; flex-wrap: nowrap;
-  overflow-y: auto; height: 100%; }
-  #left-rail, #center-screen, #right-rail { flex: none; } }
-
-/* Grid rows default to auto-sizing around their tallest item's natural content height, which
-   would let the cards stack here grow the whole row (and leak past #app-root's clip) instead of
-   scrolling internally - grid-auto-rows:100% above plus height:100% here keeps this column
-   clipped to the row it was actually given, so overflow-y:auto has a real overflow to scroll. */
-/* flex-wrap:nowrap is explicit, not the default, because Gradio's own Column CSS sets
-   flex-wrap:wrap on every gr.Column by default - without this override the 5th card wraps into
-   a second, horizontally-offset column instead of stacking, invisibly overlapping center-screen. */
-#left-rail { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 14px; height: 100%;
-  min-height: 0; overflow-y: auto; padding-right: 2px; }
-@media (max-width: 1180px) { #left-rail { flex-direction: column; flex-wrap: nowrap; height: auto; overflow: visible; } }
-@media (max-width: 1180px) { #center-screen, #right-rail { height: auto; min-height: 480px; } }
+/* #hidden-cards: the compact Tasks/Reminders/Weather/System card HTML used to render visibly in
+   the old dashboard grid (now removed) - it's kept rendered (off-screen, not display:none) only
+   because syncNotchCounts() and syncWeatherChip() in theme.JS still read live numbers off of it
+   (#tasks-card/#reminders-card/#weather-card), same off-screen technique as #mic-upload below. */
+#hidden-cards { position: absolute !important; left: -9999px !important; width: 1px !important;
+  height: 1px !important; overflow: hidden !important; }
 
 .card { background: linear-gradient(180deg, var(--panel-2), var(--panel)); border: 1px solid var(--border);
   border-radius: 20px; padding: 14px 15px 14px; box-shadow: 0 14px 34px -20px rgba(0,0,0,.6); flex: none; }
@@ -395,9 +393,7 @@ html[data-notch="full"] #chat-view { display: flex !important; }
 .uptime-row .stat-label { margin: 0; }
 .uptime-value { font-size: .78rem; color: var(--text) !important; font-family: 'JetBrains Mono', monospace; }
 
-/* ── center: voice orb ───────────────────────────────────── */
-#center-screen { position: relative; z-index: 1; display: flex; flex-direction: column; flex-wrap: nowrap;
-  align-items: center; justify-content: center; gap: 22px; height: 100%; min-height: 0; padding: 10px; }
+/* ── voice orb (now lives inside #chat-view, compact-sized there - see that section's CSS) ── */
 .orb-wrap { position: relative; width: 240px; height: 240px; display: flex; align-items: center; justify-content: center; }
 .orb-ring { position: absolute; border-radius: 50%; border: 1px solid var(--border-strong); }
 .ring-1 { inset: 0; animation: orb-spin 26s linear infinite; border-style: dashed; opacity: .5; }
@@ -469,14 +465,7 @@ html[data-notch="full"] #chat-view { display: flex !important; }
 #task-toggle-trigger, #task-toggle-btn { position: absolute !important; left: -9999px !important;
   width: 1px !important; height: 1px !important; overflow: hidden !important; }
 
-/* ── right: conversation panel ───────────────────────────── */
-#right-rail { display: flex; flex-direction: column; flex-wrap: nowrap; height: 100%; min-height: 0;
-  background: linear-gradient(180deg, var(--panel-2), var(--panel));
-  border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
-#convo-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 13px 15px;
-  border-bottom: 1px solid var(--border); flex-wrap: wrap; }
-#convo-head h2 { margin: 0; font-size: .92rem; font-weight: 700; color: var(--text) !important; }
-#convo-actions { display: flex; gap: 7px; flex: none; }
+/* ── conversation actions (Clear / Extract), now a small row inside #chat-view's header ── */
 .chip-btn { display: flex !important; align-items: center; gap: 5px !important; font-size: .72rem !important;
   font-weight: 600 !important; color: var(--muted) !important; background: rgba(255,255,255,.03) !important;
   border: 1px solid var(--border) !important; padding: 5px 10px !important; border-radius: 8px !important;
@@ -589,7 +578,9 @@ html[data-notch="full"] #chat-view { display: flex !important; }
 #app-root.modal-tasks #modal-tasks-content,
 #app-root.modal-tasks #modal-tasks-content .modal-section,
 #app-root.modal-reminders #modal-reminders-content,
-#app-root.modal-reminders #modal-reminders-content .modal-section { display: block !important; flex: none !important; }
+#app-root.modal-reminders #modal-reminders-content .modal-section,
+#app-root.modal-system #modal-system-content,
+#app-root.modal-system #modal-system-content .modal-section { display: block !important; flex: none !important; }
 .modal-section h3 { margin: 0 0 14px; font-size: 1rem; font-weight: 700; color: var(--text) !important;
   display: flex; align-items: center; gap: 9px; padding-right: 34px; }
 .modal-section h3 svg { width: 17px; height: 17px; color: var(--accent) !important; flex: none; }
@@ -608,11 +599,7 @@ html[data-notch="full"] #chat-view { display: flex !important; }
   font-family: 'JetBrains Mono', monospace; }
 
 @media (max-width: 640px) {
-  #dashboard { padding: 10px; gap: 10px; }
   #topbar .brand small { display: none; }
-  .brand-title { font-size: 1.1rem; letter-spacing: .2em; }
-  .orb-wrap { width: 180px; height: 180px; }
-  .orb-core { width: 104px; height: 104px; }
   #modal-panel { width: 94vw; max-height: 88vh; }
   .forecast-cond { display: none; }
 }
@@ -811,27 +798,11 @@ JS = r"""
     if (el) el.focus();
   };
 
-  // ── minimal chat view's "Ask me anything" input: a pure launcher, not a second chat pipeline.
-  // It forwards the typed text into the real composer and clicks the real send button, so
-  // text_turn (the actual backend handler, already wired to #send-btn) runs completely
-  // unchanged - then switches to the dashboard so its reply is visible in the real chatbot. ──
-  window.awaazSendFromMini = function () {
-    const mini = document.getElementById("mini-ask-input");
-    const real = document.querySelector("#composer-input textarea, #composer-input input");
-    if (!mini || !real || !mini.value.trim()) return;
-    const text = mini.value;
-    mini.value = "";
-    real.value = text;
-    real.dispatchEvent(new Event("input", { bubbles: true }));
-    awaazSetNotch("dashboard");
-    setTimeout(function () { document.getElementById("send-btn")?.click(); }, 80);
-  };
-
-  // ── card detail modals (Weather / Tasks / Reminders) ──
-  // Content for all three is always kept live in the DOM (see dashboard_panels in app.py) so
+  // ── card detail modals (Weather / Tasks / Reminders / System) ──
+  // Content for all four is always kept live in the DOM (see dashboard_panels in app.py) so
   // opening one never shows stale data; only which one is visible is toggled here, via a class
   // on #app-root that the CSS uses to show the matching #modal-*-content block.
-  const MODAL_NAMES = ["weather", "tasks", "reminders"];
+  const MODAL_NAMES = ["weather", "tasks", "reminders", "system"];
   window.awaazOpenModal = function (name) {
     const root = document.getElementById("app-root");
     if (!root) return;
@@ -1431,11 +1402,6 @@ SPEAKER_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strok
               '<path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 9a4 4 0 0 1 0 6M19 6.5a7.5 7.5 0 0 1 0 11"/></svg>')
 MINIMIZE_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">'
                 '<path d="M6 12h12"/></svg>')
-ARROW_UP_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">'
-               '<path d="M12 19V5M6 11l6-6 6 6"/></svg>')
-GRID_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
-           '<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/>'
-           '<rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg>')
 
 def topbar_html() -> str:
     """Bookended by two rounded-pill icon clusters — Home / Chat / + on the left, Gear / Speaker
@@ -1499,11 +1465,12 @@ def notch_launcher_html() -> str:
 
 def notch_panel_html() -> str:
     """The Coucou-style quick view shown right after tapping the pill: a status/launch card next
-    to a grid of the same Tasks/Reminders/Weather/System features as the full dashboard — Tasks/
-    Reminders/Weather open their existing modals directly (see awaazOpenModal, already wired
-    elsewhere), System opens the full dashboard since its detail only lives there (the hero card
-    opens the new minimal chat view instead - see chat_view_html() below). Live task/reminder
-    counts are kept in sync with the real dashboard cards by syncNotchCounts() in theme.JS."""
+    to a grid of Tasks/Reminders/Weather/System, each opening its own modal directly (see
+    awaazOpenModal, already wired elsewhere) without needing to open the chat view at all. The
+    hero card opens the chat view itself (see chat_view_header_html() below) - the single
+    "opened" interface, holding the live conversation and voice controls. Live task/reminder
+    counts are kept in sync with the real (off-screen) data cards by syncNotchCounts() in
+    theme.JS."""
     tiles = "".join(f"""
   <button class="notch-tile" onclick="awaazOpenModal('{name}')">
     <span class="badge badge-{color}">{icon}</span>
@@ -1512,12 +1479,8 @@ def notch_panel_html() -> str:
         ("tasks", "green", CHECKLIST_SVG, "Tasks", True),
         ("reminders", "amber", BELL_SVG, "Reminders", True),
         ("weather", "sky", CLOUD_SVG, "Weather", False),
+        ("system", "blue", CPU_SVG, "System", False),
     ))
-    tiles += f"""
-  <button class="notch-tile" onclick="awaazSetNotch('dashboard')">
-    <span class="badge badge-blue">{CPU_SVG}</span>
-    <span class="notch-tile-label"><span>System</span></span>
-  </button>"""
     return f"""
 <div class="notch-panel">
   <button class="notch-hero" onclick="awaazSetNotch('full')">
@@ -1532,24 +1495,14 @@ def notch_panel_html() -> str:
 </div>"""
 
 
-def chat_view_html() -> str:
-    """The minimal chat view 'Open Awaaz' now opens into: a floating rounded card (below the
-    existing #topbar, unchanged) with the mascot and a single 'Ask me anything' input. Submitting
-    it (awaazSendFromMini in theme.JS) forwards the text into the real composer and switches to
-    the full dashboard so Awaaz's actual response pipeline runs unchanged - this view has no chat
-    pipeline of its own, it's purely a launcher. The grid icon opens that full dashboard directly,
-    for Tasks/Reminders/Weather/System detail this view doesn't show."""
+def chat_view_header_html() -> str:
+    """Static header shell for #chat-view (see app.py's build_ui): mascot + an ambient glow +
+    title. Placed in the same gr.Row as the real Clear/Extract gr.Button components, which need
+    real click wiring so they're not part of this raw HTML string."""
     return f"""
-<div id="chat-view">
-  <button class="chat-view-dash-btn" onclick="awaazSetNotch('dashboard')" title="Full dashboard">{GRID_SVG}</button>
-  <div class="chat-view-glow"></div>
-  {mascot_html("xl")}
-  <div class="chat-ask-bar">
-    <input id="mini-ask-input" type="text" placeholder="Ask me anything…" autocomplete="off"
-          onkeydown="if(event.key==='Enter'){{event.preventDefault();awaazSendFromMini();}}" />
-    <button class="chat-ask-send" onclick="awaazSendFromMini()" title="Send">{ARROW_UP_SVG}</button>
-  </div>
-</div>"""
+<div class="chat-view-glow"></div>
+{mascot_html("md")}
+<div class="chat-view-title">Awaaz</div>"""
 
 
 def conversation_welcome_html(language: str = "en") -> str:
