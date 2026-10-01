@@ -1,0 +1,28 @@
+{
+  "name": "awaaz-notch",
+  "version": "0.1.0",
+  "description": "A floating pill widget at the top of your screen showing Awaaz's live tasks and reminders, with native macOS notifications for due reminders. Reads data/tasks.json and data/reminders.json directly — no changes to the Awaaz app itself.",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "build:mac": "electron-builder --mac"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.awaaz.notch",
+    "productName": "Awaaz Notch",
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": "dmg"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*"
+    ]
+  }
+}

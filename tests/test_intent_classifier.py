@@ -37,7 +37,7 @@ def fake_llm(monkeypatch, payload):
      {"intent": "weather", "language": "en", "city": "Kathmandu", "weather_when": "current"}, ("weather", "ne")),
     ("Show the Premier League standings", {"intent": "league_table", "league": "Premier League"}, ("league_table", "en")),
     ("यो महिनाको कामको सूची देखाऊ।", {"intent": "list_tasks", "language": "ne"}, ("list_tasks", "ne")),
-    ("Who won the Super Bowl?", {"intent": "out_of_scope"}, ("out_of_scope", "en")),
+    ("Who won the Super Bowl?", {"intent": "general_ai"}, ("general_ai", "en")),
 ])
 def test_classify_english_and_nepali(monkeypatch, text, payload, expected):
     fake_llm(monkeypatch, payload)

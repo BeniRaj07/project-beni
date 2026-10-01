@@ -1,14 +1,17 @@
-# Awaaz — Bilingual AI Voice & Chat Assistant
+# Awaaz — Bilingual Personal AI Voice & Chat Assistant
 
-**A ChatGPT-style, voice-first assistant for everyday task management, weather and football news,
-in Nepali (नेपाली) and English.**
+**A Siri-style, voice-first personal assistant — wake word, general knowledge, your own personal
+context, everyday task management, weather, football and Nepal political news — in Nepali (नेपाली)
+and English.**
 University data-science project · Python 3.11+ · Gradio · Groq Whisper + LLM · Gemini/ElevenLabs TTS
 · JSON data store · APScheduler
 
-The assistant has a deliberately **limited scope**: greetings and small talk, personal reminders,
-monthly tasks, weather, and football (soccer). Everything else is politely refused. There are no
-feature tabs, dashboards or forms — every feature is reached through one conversation, by voice or
-by typing.
+Say **"Hey Aawaz"** (configurable) or tap the mic, and talk naturally. Awaaz has dedicated,
+deterministic services for reminders, monthly tasks, weather, football and Nepal political news —
+and falls back to general conversational AI for everything else (explanations, coding help, general
+knowledge, writing help, and more), so it isn't limited to a fixed list of supported questions.
+There are no feature tabs, dashboards or forms — every feature is reached through one conversation,
+by voice or by typing.
 
 ---
 
@@ -21,13 +24,20 @@ A single, minimal ChatGPT-style screen:
   Click a conversation to reopen it with its full history and context; hover a row to rename (✏️)
   or delete (🗑️) it. Collapses into a slide-out drawer on narrow screens.
 - **Main chat column** — a plain conversation: your messages, the assistant's replies, a welcome
-  message on a fresh chat, a subtle status line ("Listening…", "Hearing you…", "Thinking…",
-  "Speaking…") while it works, and a spoken-reply player with a **Stop** button. A composer at the
-  bottom has a text box, a **Send** button, and a round 🎤 **mic button**: tap once for one
-  microphone permission prompt and a continuous, hands-free voice session — it keeps listening the
-  entire time, including while Awaaz is talking, so starting to speak over it interrupts
-  immediately (no button press, no waiting for it to finish). Tap the mic again, or **End**, to
-  stop and release the microphone.
+  message on a fresh chat, a status line reflecting exactly what Awaaz is doing ("Listening for
+  Aawaz…", "Yes?", "Listening…", "Hearing you…", "Thinking…", "Speaking…", "Stopped") while it
+  works, and a spoken-reply player with a **⏹ Stop** button that silences it instantly — no waiting
+  for the rest of the reply, and it never resumes. A composer at the bottom has a text box, a
+  **Send** button, a 👂 **wake-word toggle**, and a round 🎤 **mic button**.
+- **Two ways to start talking**:
+  - **Tap the mic**: one microphone permission prompt, then a continuous, hands-free voice
+    session — it keeps listening the entire time, including while Awaaz is talking, so starting to
+    speak over it interrupts immediately (no button press, no waiting for it to finish). Tap the
+    mic again, or **End**, to stop and release the microphone.
+  - **Tap 👂 (wake word)**: Awaaz listens passively for **"Hey Aawaz"** or **"Aawaz"** (configurable —
+    see §14) without transcribing anything else. Once heard, it chimes, opens a normal hands-free
+    session for your command (with the same barge-in behaviour above for natural follow-ups), and
+    automatically returns to passive wake-word listening once the conversation pauses — see §14.
 
 Dark by default; a 🌓 toggle in the sidebar switches to light. No intent JSON, API responses or
 debugging information is ever shown — only the final conversational answer.
@@ -36,11 +46,15 @@ debugging information is ever shown — only the final conversational answer.
 
 | Capability | What it does | Data source |
 |---|---|---|
-| 💬🎙️ Conversation | Type or speak, in English, Devanagari Nepali or Romanized Nepali; the reply is shown as text and (optionally) spoken back; follow-up questions ("What time?" → "8 PM") keep context; every conversation is saved and searchable | Groq Whisper + LLM |
+| 👂 Wake word | Passive, always-on listening for "Hey Aawaz" / "Aawaz" without sending audio anywhere until it's heard; configurable phrase list | Browser SpeechRecognition (local to the browser) |
+| 💬🎙️ Conversation | Type or speak, in English, Devanagari Nepali or Romanized Nepali; the reply is shown as text and (optionally) spoken back; follow-up questions ("What time?" → "8 PM", "who is Einstein?" → "when was he born?") keep context; every conversation is saved and searchable | Groq Whisper + LLM |
+| 🧠 General knowledge | Anything not covered by a dedicated service below — explanations, coding help, how-to, science, current events, writing help, other sports, etc. | Groq LLM |
+| 🙋 Personal memory | "Remember that my supervisor is Dr. Sharma", then later "who is my supervisor?" — Awaaz answers only from what you've told it, and says so honestly if it doesn't know | Local JSON (`data/personal_context.json`) |
 | ⏰ Reminders | Created, listed, edited and deleted entirely by voice/text — "remind me to call mum tomorrow at 8", "what reminders do I have today?", "delete my assignment reminder"; one-time, daily, weekly or monthly; due reminders appear as a chat message (and are spoken, if enabled) while the app is running | Local JSON + APScheduler |
 | 📝 Monthly tasks | Add, list, complete and delete by voice/text — "add finishing my report to this month's tasks", "what are my pending tasks?", "mark my report as completed"; recurring monthly tasks never duplicate; a task can carry a linked reminder | Local JSON |
 | 🌤️ Weather | Current conditions kept clearly separate from forecasts; the location's own timezone; remembers the last city you asked about | Open-Meteo |
 | ⚽ Football | Standings, recent results, upcoming fixtures, team results, and short news summaries with sources — six competitions (Premier League, La Liga, Bundesliga, Serie A, Ligue 1, Champions League); American football is excluded | Football-Data.org, NewsAPI |
+| 🇳🇵 Nepal politics | "What's the latest political news in Nepal?" — recent developments, deduplicated, with sources, publication times and a summary that keeps confirmed reporting visibly separate from a party's or politician's own claims; never recommends a party or candidate | NewsAPI |
 
 ---
 
@@ -73,22 +87,25 @@ table (completed and translated), `LEAGUE_CODES` (extended with Nepali names), t
 ## 4. Architecture
 
 ```
-                     ┌──────────── app.py (ChatGPT-style UI) ─────────────┐
-  type ─────────────►│  sidebar: conversations   ·   chat + composer + 🎤 │◄── gr.Timer polls due reminders
-  speak (mic) ───────►└───────┬───────────────────────┬───────────────────┘
+  "Hey Aawaz" ──► theme.JS wake-word listener (browser SpeechRecognition, local) ──► chime
+                              │
+                     ┌──────────── app.py (HUD UI) ────────────┐
+  type ─────────────►│  sidebar: conversations · dashboard ·   │◄── gr.Timer polls due reminders
+  speak (mic/wake) ──►│  chat + composer + 🎤 + ⏹ Stop         │
+                      └───────┬───────────────────────┬────────┘
                               │ speech_to_text        │ text_turn()
                               ▼ (Whisper)              ▼
                       assistant/conversation.respond()
                               │  ① intent_classifier (Groq LLM → JSON → Pydantic)
                               │  ② merge follow-up answers   ③ dispatch
                               ▼
-                      assistant/handlers.py ──► services/{weather, football, news, reminders, tasks}
-                              │                          │
-                              ▼                          ▼
+                      assistant/handlers.py ──► services/{weather, football, news, nepal_news,
+                              │                    reminders, tasks, personal_context}
+                              ▼                          │
                       response_generator            data/*.json (database/json_store.py)
                       (templates for facts,         ◄── scheduler/reminder_scheduler.py
-                       LLM only for small talk
-                       + news summaries)
+                       LLM for small talk, general_ai,
+                       personal answers + news summaries)
                               ▼
                       Reply(text, spoken, language) ──► text_to_speech (Gemini/ElevenLabs → edge-tts) ──► WAV
                               ▼
@@ -97,32 +114,35 @@ table (completed and translated), `LEAGUE_CODES` (extended with Nepali names), t
 
 ```
 voice-assistant/
-├── app.py                        # the ChatGPT-style UI (sidebar + chat) + start-up
-├── theme.py                      # dark/light CSS + the small amount of client JS (mic recorder,
-│                                  #   theme toggle, mobile sidebar drawer)
-├── config.py                     # settings from .env, JSON structured logging
+├── app.py                        # the HUD UI (sidebar + dashboard + chat) + start-up
+├── theme.py                      # dark/light CSS + the client JS: mic recorder, VAD/barge-in
+│                                  #   state machine, wake-word listener, theme toggle, drawer
+├── config.py                     # settings from .env (incl. WAKE_PHRASES), JSON structured logging
 ├── assistant/
-│   ├── intent_classifier.py      # 17 intents, entity extraction, Pydantic validation
+│   ├── intent_classifier.py      # 20 intents, entity extraction, Pydantic validation
 │   ├── conversation.py           # respond()/run_intent(): the shared backend for every turn
-│   ├── handlers.py               # one function per intent
-│   ├── response_generator.py     # bilingual templates, formatters, LLM greeting/news summary
+│   ├── handlers.py               # one function per intent — see §14 "adding a service"
+│   ├── response_generator.py     # bilingual templates, formatters, LLM greeting/general-AI/
+│   │                              #   personal-answer/news-summary generation
 │   └── briefing.py               # "what's my update?" daily-briefing intent
 ├── services/
 │   ├── http.py                   # timeouts, retries, friendly errors, cache, rate limiter
 │   ├── llm.py                    # Groq chat wrapper (JSON mode + retry)
 │   ├── speech_to_text.py         # Groq Whisper
 │   ├── text_to_speech.py         # Gemini/ElevenLabs + edge-tts fallback, unique WAV files
-│   ├── weather.py  football.py  news.py
+│   ├── weather.py  football.py  news.py  nepal_news.py
 │   ├── reminders.py  tasks.py    # business logic, on top of the JSON store
+│   ├── personal_context.py       # personal-memory store + lightweight retrieval — see §13
 │   ├── conversations.py          # sidebar persistence: CRUD, auto-title, search, grouping
 │   └── user_settings.py          # the handful of UI-editable prefs (autoplay, theme, …)
 ├── database/
 │   ├── json_store.py             # atomic, locked, schema-validated read/write for one JSON file
 │   ├── models.py                 # Pydantic schemas for every data/*.json file
-│   └── stores.py                 # the four JsonStore instances (conversations/reminders/tasks/settings)
+│   └── stores.py                 # the five JsonStore instances (conversations/reminders/tasks/
+│                                  #   settings/personal_context)
 ├── scheduler/reminder_scheduler.py
 ├── scripts/check_setup.py        # pre-demo API + TTS check
-├── tests/                        # 140 unit tests, all external services mocked
+├── tests/                        # 162 unit tests, all external services mocked
 └── legacy/original_app.py        # the original script, for comparison
 ```
 
@@ -145,6 +165,16 @@ voice-assistant/
 * **Conversation context survives everything.** A follow-up question's pending state, the last city
   you asked about, and the detected language are saved on the conversation record itself, so
   switching to another chat and back — or restarting the app entirely — doesn't lose the thread.
+* **General knowledge is the one place facts *do* come from the LLM** — there's no deterministic
+  API for "explain quantum mechanics." `assistant/handlers.py`'s `handle_general_ai` is the explicit,
+  narrow exception to the "facts never from the LLM" rule above, and is prompted to say so when it
+  isn't confident, rather than state-guess.
+* **Personal context is retrieval, not injection.** The full personal-memory store is never sent to
+  the LLM; `services/personal_context.search_facts()` first finds the (at most a few) relevant facts
+  by keyword/fuzzy overlap, and only those are put in the prompt — see §13.
+* **The wake word never reaches the server.** `theme.py`'s JS matches wake phrases locally against
+  the browser's own speech recognizer; Groq Whisper is only used once a real command needs
+  transcribing — see §14.
 
 ---
 
@@ -159,6 +189,9 @@ to reach any of them is through the one conversation column, by typing or speaki
 - "What are my pending tasks?" → monthly tasks
 - "Is it raining in Kathmandu right now?" → weather
 - "Show the Premier League standings" → football
+- "What's the latest political news in Nepal?" → Nepal politics
+- "Remember that my thesis topic is voice assistants" / "what's my thesis topic?" → personal memory
+- "Explain how a semiconductor detector works" → general knowledge (Groq LLM)
 
 This keeps the interface to the two sections asked for (a conversation sidebar and a chat), while
 every backend capability stays reachable — just through conversation, not through a form.
@@ -179,11 +212,12 @@ Fill in `.env`:
 |---|---|---|
 | `GROQ_API_KEY` | console.groq.com/keys | generous; rate-limited per minute |
 | `GEMINI_API_KEY` | aistudio.google.com/apikey | primary TTS engine by default; preview model has a daily quota |
-| `NEWS_API_KEY` | newsapi.org/register | developer plan: localhost only, articles delayed ~24 h |
+| `NEWS_API_KEY` | newsapi.org/register | developer plan: localhost only, articles delayed ~24 h; powers both football news and Nepal political news |
 | `FOOTBALL_DATA_KEY` | football-data.org/client/register | 10 requests/min, the six supported competitions included; scores may be delayed |
 | `ELEVENLABS_API_KEY` *(optional)* | elevenlabs.io/app/settings/api-keys | only needed if you want an ElevenLabs voice instead of Gemini's — see below |
 
 Open-Meteo needs no key. The timezone defaults to `Asia/Kathmandu` (`APP_TIMEZONE` in `.env`).
+`WAKE_PHRASES` (optional, default `Hey Aawaz,Aawaz`) sets the wake word(s) — see §14.
 
 **Choosing a voice:** with no `ELEVENLABS_API_KEY`, replies are spoken with **Gemini TTS** (the
 original project's engine) by default, falling back to edge-tts automatically for anything Gemini
@@ -205,14 +239,15 @@ python scripts/check_setup.py
 python app.py
 ```
 
-Open **http://127.0.0.1:7860**. Type a message, or tap the 🎤 button and speak — tap it again to
-send. The `data/` folder (`conversations.json`, `reminders.json`, `tasks.json`, `settings.json`) is
+Open **http://127.0.0.1:7860**. Type a message, tap the 🎤 button and speak, or tap 👂 and say
+"Hey Aawaz" (wake-word listening needs a Chromium-based browser — see §14). The `data/` folder
+(`conversations.json`, `reminders.json`, `tasks.json`, `settings.json`, `personal_context.json`) is
 created automatically on first start. Logs are written as JSON lines to `logs/app.log`.
 
 ## 8. Tests
 
 ```bash
-pytest -q            # 140 tests, ~4 s, no network or API keys needed
+pytest -q            # 162 tests, ~5 s, no network or API keys needed
 pytest -v tests/test_reminders.py     # a single file
 ```
 
@@ -221,8 +256,13 @@ retrieval, monthly recurrence (month-end clamping), exactly-once firing, timezon
 recurring tasks without duplicates, progress/overdue, weather current-rain vs forecast, football
 parsing/filtering/rate limits, NFL filtering, HTTP 429/403/500/timeouts/bad JSON, malformed LLM
 output, STT empty/short/failed audio, TTS fallback and total failure, follow-up questions,
-conversation persistence/search/grouping/auto-titling, and the JSON store's atomic writes,
-corruption recovery and concurrent-write safety.
+conversation persistence/search/grouping/auto-titling, the JSON store's atomic writes, corruption
+recovery and concurrent-write safety, general-AI routing, personal-context retrieval (relevant/
+irrelevant/fuzzy matches, honest "don't know"), and Nepal-news deduplication/source handling.
+
+**Not covered by automated tests**: the wake-word listener and VAD/barge-in state machine live
+entirely in `theme.py`'s client-side JS — there's no browser-automation (Selenium/Playwright) suite
+in this project, so that logic is verified manually (see §14) rather than by `pytest`.
 
 ---
 
@@ -244,33 +284,46 @@ corruption recovery and concurrent-write safety.
 | `What were Barcelona's recent results?` | ⚽ Confirmed results — FC Barcelona 4 – 1 Sevilla FC … |
 | `प्रिमियर लिगको ताजा समाचार सुनाऊ।` | 📰 समाचार (प्रकाशित लेखहरू — पुष्टि भएका खेल नतिजा होइनन्): 4–6 वाक्यको सारांश + स्रोतहरू |
 | **Daily update** — `What's my update?` | 🌤️ weather + 📝 tasks due today + ✅ completed today + ⚠️ overdue + ⏰ today's reminders, in one reply |
-| **Out of scope** — `Write my essay` | Sorry, I can only help with greetings, reminders, monthly tasks, the weather and football news. |
+| **Nepal politics** — `What's the latest political news in Nepal?` | 🇳🇵 Nepal politics — recent developments: 4–6 sentence summary (facts vs. claims kept separate) + sources |
+| **Personal memory** — `Remember that my supervisor is Dr. Sharma` | 🧠 Got it — I'll remember: **supervisor** — Dr. Sharma. |
+| ↳ later — `Who is my supervisor?` | Your supervisor is Dr. Sharma. |
+| ↳ never told it — `What's my phone number?` | I don't have that saved about you yet — you can tell me and I'll remember it. |
+| **General knowledge** — `Explain quantum mechanics in simple terms` | a plain-language explanation, answered directly by the LLM |
+| ↳ follow-up — `Who is Einstein?` then `When was he born?` | Awaaz resolves "he" from the conversation history and answers about Einstein specifically |
+| **Wake word** — say "Hey Aawaz" while 👂 is on | *(chime)* status changes to "Yes?" then "Listening…" — speak your command next |
 
-(Exact wording of LLM-generated greetings and summaries will vary.)
+(Exact wording of LLM-generated greetings, summaries and general-knowledge answers will vary.)
 
 ---
 
 ## 10. Presenting the project (suggested 10-minute demo)
 
-1. **Problem & scope (1 min)** — a *focused* bilingual assistant for everyday needs in Nepal; why a
-   limited scope, reached through one conversation, is more reliable and simpler than a
-   general chatbot with separate feature dashboards.
-2. **Architecture (2 min)** — show the diagram in §4: speech/text → intent (LLM + Pydantic) →
-   deterministic services → templates → speech, all saved to the JSON store. Stress "facts never
-   come from the LLM" and "one conversation reaches every feature".
+1. **Problem & scope (1 min)** — a bilingual **personal** assistant for everyday needs in Nepal:
+   dedicated, deterministic services for the things it's asked most (reminders, tasks, weather,
+   football, Nepal politics, your own personal context) plus a general-AI fallback so it's never
+   stuck refusing an ordinary question — all reached through one conversation, by voice (with a
+   wake word) or by typing.
+2. **Architecture (2 min)** — show the diagram in §4: wake word → speech/text → intent (LLM +
+   Pydantic) → dedicated service or general AI or personal memory → templates/LLM → speech, all
+   saved to the JSON store. Stress "facts never come from the LLM except for general knowledge,
+   where it's explicit" and "one conversation reaches every feature".
 3. **Live demo (5 min)**:
-   * New chat → type "नमस्ते" → say "Remind me to submit my assignment" (tap 🎤) → answer the
-     follow-up "today at <2 minutes from now>" by voice.
+   * Tap 👂, say "Hey Aawaz", wait for the chime, then say "Remind me to submit my assignment" →
+     answer the follow-up "today at <2 minutes from now>" by voice.
    * Ask *"काठमाडौंमा अहिले पानी परिरहेको छ?"*; point out the Nepali reply and spoken audio.
-   * Ask for Premier League standings, then for Premier League news **in Nepali**, and show the
-     sources and the "news ≠ confirmed results" label.
+   * Ask for Premier League standings, then for Nepal's latest political news, and show the sources
+     and the "reporting ≠ confirmed claim" labels on both.
+   * Say "Remember that my thesis topic is voice assistants", then later "what's my thesis topic?".
+   * Ask a general-knowledge question ("explain quantum mechanics"), then a follow-up that needs
+     conversation context ("who is Einstein?" → "when was he born?").
+   * Press **⏹ Stop** mid-reply to show the interruption is instant.
    * Add a recurring monthly task, then say "mark it as completed".
    * Rename and search conversations in the sidebar; by now the reminder pops up in the chat as a
      notification — the scheduler working live.
 4. **Data-science angle (1 min)** — structured JSON logs (`logs/app.log`) can be loaded into pandas
    to analyse intent distribution, language mix, latency per service and error rates; open
    `data/conversations.json` to show the persisted, human-readable conversation store.
-5. **Testing & limitations (1 min)** — run `pytest -q` (140 tests, all APIs mocked); honest limits below.
+5. **Testing & limitations (1 min)** — run `pytest -q` (162 tests, all APIs mocked); honest limits below.
 
 **Before the presentation:** run `python scripts/check_setup.py`, and have a backup screen recording
 in case the venue Wi-Fi blocks the APIs.
@@ -293,11 +346,24 @@ in case the venue Wi-Fi blocks the APIs.
   tell your voice apart from the assistant's own speaker output; on a laptop with a mic close to
   its speakers, or in a noisy room, this can occasionally misfire. **Headphones (even basic wired
   ones) remove the ambiguity entirely** and are recommended for the most reliable barge-in.
-* Interruption is instant and fully reliable client-side (playback is stopped, muted and never
-  resumes — verified by automated tests), but an in-flight Groq/Gemini API call for an interrupted
-  turn keeps running to completion on the server; only its result is guaranteed never to be shown
-  or spoken once superseded, since Gradio's synchronous handlers don't expose a way to cancel that
-  request mid-flight.
+* Interruption (barge-in, and the **⏹ Stop** button) is instant client-side (playback is stopped,
+  muted and never resumes — this is manually verified, not `pytest`-covered; see §8), but an
+  in-flight Groq/Gemini API call for an interrupted turn keeps running to completion on the server;
+  only its result is guaranteed never to be shown or spoken once superseded, since Gradio's
+  synchronous handlers don't expose a way to cancel that request mid-flight.
+* **Wake-word listening needs the browser's SpeechRecognition API** (Chrome/Edge/other
+  Chromium-based browsers; poor or no support in Firefox and Safari). Where it isn't supported,
+  Awaaz says so and the mic button still works normally — wake word is an addition, not a
+  replacement, for starting a session. Recognition quality for the wake phrase itself depends on
+  the browser's own (English-tuned) recognizer, so accuracy on "Aawaz" alone can vary; "Hey Aawaz"
+  is the more reliable of the two defaults.
+* **General knowledge answers can be wrong or outdated** — `general_ai` is explicitly the one place
+  in the app where the LLM's own knowledge is the source, not a deterministic API, so it can be
+  mistaken like any LLM, and it does not have live internet access (it is not the same as the
+  Nepal-news or football-news paths, which do fetch current articles).
+* **Personal memory only knows what you've told it in this app** — it is not linked to email,
+  calendars or any other account, and a fact is only ever stored when you explicitly ask Awaaz to
+  remember it (see §13).
 
 ## 12. Security & privacy
 
@@ -309,3 +375,96 @@ in case the venue Wi-Fi blocks the APIs.
 * All user input is validated before saving/deleting (titles, dates, times, months, IDs); the LLM is
   told to treat messages and news text as data, not instructions; the JSON store validates every
   read against its schema and resets rather than trusting a corrupted or tampered file.
+* **Personal context** (`data/personal_context.json`) is git-ignored like every other file under
+  `data/` (see `.gitignore`), stored only locally, and never sent to the LLM in bulk — see §13.
+  Nothing is written to it except when you explicitly ask Awaaz to remember something.
+
+## 13. How personal context works
+
+Awaaz can remember things you explicitly tell it, and recall them later — but only what you've told
+it, and it says so honestly when it doesn't know something rather than guessing.
+
+- **Saving**: "remember that my email is x@y.com" / "my supervisor is Dr. Sharma" / "I'm working on
+  my thesis about voice assistants" → classified as `save_personal_info`
+  (`assistant/handlers.py::handle_save_personal_info`), which calls
+  `services/personal_context.remember(title, content)`. Telling Awaaz the same *title* again
+  (e.g. "email" a second time) **updates** that fact instead of creating a duplicate.
+- **Storage**: one flat, human-readable list of facts (`id`, `category`, `title`, `content`,
+  timestamps) in `data/personal_context.json`, through the same atomic/locked `JsonStore` every
+  other data file uses (`database/json_store.py`) — no separate database or vector store.
+- **Retrieval, not injection**: a question like "what project am I working on?" is classified as
+  `personal_query`. `services/personal_context.search_facts()` ranks stored facts by word overlap
+  with the question (title matches count double), falling back to fuzzy title matching for typos or
+  ASR misrecognition, and returns only the (at most 3) facts that are actually relevant — never the
+  whole store. Those few facts, and only those, are put in the prompt.
+- **Honesty**: if `search_facts()` finds nothing relevant, `handle_personal_query` returns *"I don't
+  have that saved about you yet"* directly — no LLM call is made for that case at all, so there is
+  no way for it to invent an answer. When facts *are* found, the prompt
+  (`generate_personal_answer` in `assistant/response_generator.py`) explicitly instructs the model
+  to answer only from what it was given and to say so if the facts don't fully answer the question.
+- **Categories** (`profile`, `preference`, `education`, `project`, `research`, `person`, `schedule`,
+  `note`) exist in the data model for future use (e.g. a "list what you know about me" view by
+  category) but aren't yet exposed through voice — everything saved today lands in `note` unless a
+  future intent supplies a category explicitly.
+- Why not embeddings/a vector database? At the scale of one person's notes (tens to a few hundred
+  facts), keyword/fuzzy overlap is simpler, needs no extra API calls or model, and is easy to test
+  and explain — see `tests/test_personal_context.py`. If the store grew much larger, swapping
+  `search_facts()`'s internals for a real embedding search would be a contained change; nothing
+  outside `services/personal_context.py` depends on how retrieval works internally.
+
+## 14. Wake word, adding a service, and Nepal news internals
+
+**How wake-word detection works** — entirely client-side, in `theme.py`'s JS (search for "persistent
+wake-word listening"):
+1. Tapping 👂 starts a lightweight listener using the browser's own `SpeechRecognition` API —
+   deliberately *not* the same MediaRecorder-plus-Groq-Whisper pipeline the real command session
+   uses, so no audio is sent anywhere while Awaaz is just waiting to be woken. Every recognized
+   phrase is matched locally against the configured wake phrases; nothing is sent to the server
+   unless one matches.
+2. On a match: the recognizer stops, a short chime plays (synthesised locally with the Web Audio
+   API — no round trip), and the normal hands-free command session opens (the same
+   VAD/barge-in-driven session the 🎤 button starts), marked internally as wake-triggered.
+3. When that conversation naturally pauses (the reply finishes with no follow-up, or the turn times
+   out), Awaaz automatically closes the command session and returns to passive wake-word listening
+   — "Idle → wake word → chime → listen for command → ... → speak the answer → back to wake-word
+   listening." Manually tapping 🎤 during an active wake-triggered session, or **✕ End**, stops
+   everything instead of returning to wake-word listening.
+4. The listener automatically restarts itself if the browser silently ends "continuous" recognition
+   (which happens after roughly a minute of silence in most browsers) or hits a transient error,
+   with backoff after repeated failures; permission denial or an unsupported browser is shown
+   clearly rather than retried forever. See §11 for the browser-support caveat.
+
+**How to configure wake phrases** — edit `WAKE_PHRASES` in `.env` (comma-separated, e.g.
+`WAKE_PHRASES=Hey Aawaz,Aawaz,Namaste Aawaz`) and restart the app. `config.py`'s `Settings.wake_phrases`
+reads it, and `app.py` passes it to `theme.head()`, which injects it as `window.AWAAZ_WAKE_PHRASES`
+for the JS matcher to read — no code change needed for a new phrase.
+
+**How to add another service** (the pattern every existing service, including the new ones in this
+release, already follows):
+1. Add the intent name to `IntentName` in `assistant/intent_classifier.py`, and describe when to use
+   it in `SYSTEM_PROMPT`'s intent guide (and add any new entity fields to `IntentResult` if the
+   intent needs data the existing fields — `title`, `description`, `city`, `date`/`time`, etc. —
+   don't already cover).
+2. Write a `handle_<intent>(it, text, state, now) -> Reply` function in `assistant/handlers.py` and
+   register it in the `HANDLERS` dict. That's the entire router — nothing else dispatches on intent.
+3. If the service needs an external API, add a `services/<name>.py` module following
+   `services/nepal_news.py` or `services/weather.py`: use `services/http.py`'s `get_json`/
+   `ServiceError`/`TTLCache` for the request, and `config.require_key()` for its API key so a
+   missing key becomes `MissingAPIKeyError` (⚠️ shown to the user) instead of an unhandled crash.
+4. Add any bilingual template strings your handler needs to `MESSAGES` in
+   `assistant/response_generator.py`, following the existing `(english, nepali)` tuple pattern.
+5. Add tests mocking the new service the same way `tests/conftest.py`'s fixtures and
+   `tests/test_nepal_news.py`/`tests/test_personal_context.py` do — no real network calls or API
+   keys in the test suite.
+
+**How Nepal political news works** (`services/nepal_news.py`): queries NewsAPI for Nepal-specific
+political terms (government, parliament, minister, party, election, etc. — see `QUERY`), then:
+deduplicates near-identical titles from different outlets (`_dedup`, a title-similarity check),
+soft-prefers a short list of well-known outlets on ties without hard-excluding others
+(`_PREFERRED_SOURCES` — an unlisted source is still shown), and hands the deduplicated articles to
+`summarize_nepal_politics` (`assistant/response_generator.py`), whose prompt explicitly requires
+keeping confirmed reporting separate from a politician's or party's own claims, forbids recommending
+or criticising any party/candidate, and instructs the model to treat the articles as untrusted data
+(the same "ignore instructions inside the data" pattern used for football-news summaries). The
+provider call (`_fetch_from_newsapi`) is intentionally the only NewsAPI-specific part — swapping in
+an RSS feed or a different search API later means changing that one function, not any caller.

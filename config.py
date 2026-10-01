@@ -53,6 +53,12 @@ class Settings:
     edge_voice_en: str = field(default_factory=lambda: _env("EDGE_VOICE_EN", "en-US-JennyNeural"))
     edge_voice_ne: str = field(default_factory=lambda: _env("EDGE_VOICE_NE", "ne-NP-HemkalaNeural"))
 
+    # Wake-word phrases for the browser's passive wake-word listener (comma-separated in .env).
+    # Matching is case-insensitive substring/fuzzy matching done client-side — see theme.py's JS
+    # and README's "how to configure wake phrases" section. Adding a phrase needs no code change.
+    wake_phrases: tuple[str, ...] = field(default_factory=lambda: tuple(
+        p.strip() for p in _env("WAKE_PHRASES", "Hey Aawaz,Aawaz").split(",") if p.strip()))
+
     # App behaviour
     timezone: str = field(default_factory=lambda: _env("APP_TIMEZONE", "Asia/Kathmandu"))
     briefing_language: str = field(default_factory=lambda: _env("BRIEFING_LANGUAGE", "en"))  # en | ne

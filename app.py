@@ -1,10 +1,12 @@
-"""Awaaz — a bilingual (नेपाली / English) voice & chat assistant with a sci-fi HUD dashboard.
+"""Awaaz — a bilingual (नेपाली / English) voice & chat assistant.
 
 Every feature (greetings, reminders, monthly tasks, weather, football) is still reached only
-through conversation — typed or spoken — in the centre chat screen; nothing is created, edited or
-deleted through a form. The Reminders and Tasks side panels, plus the clock and weather readouts,
-are read-only live views of that same data, refreshed after every turn and periodically. The full
-conversation history lives in an off-canvas drawer (☰ / ⚙ in the top bar). See README.md.
+through conversation — typed or spoken — in #chat-view, the single floating card the collapsed
+pill opens into (mascot, live conversation, voice orb + dock, text composer); nothing is created,
+edited or deleted through a form. Tasks/Reminders/Weather/System are read-only live views of that
+same data (refreshed after every turn and periodically), reached as modals from the quick panel
+without needing to open the chat view at all. Past conversations live in an off-canvas drawer
+(the Chat icon in the top bar). See README.md.
 
 Run:  python app.py      then open http://127.0.0.1:7860
 """
@@ -272,7 +274,7 @@ def system_stats_html(cpu_pct: float) -> str:
     disk = psutil.disk_usage(str(Path(settings.data_dir).anchor or "/"))
     body = theme.system_stats_body(
         cpu_pct, vm.percent, vm.used / 1e9, vm.total / 1e9, disk.used / 1e9, disk.total / 1e9)
-    return theme.panel("System Stats", body, icon_svg=theme.CPU_SVG)
+    return theme.panel("System Stats", body, icon_svg=theme.CPU_SVG, badge="blue")
 
 
 def uptime_html(cpu_pct: float) -> str:
@@ -283,15 +285,34 @@ def uptime_html(cpu_pct: float) -> str:
     load_label = "High" if cpu_pct >= 70 else ("Moderate" if cpu_pct >= 30 else "Low")
     body = theme.uptime_body(int(_APP_START_EPOCH_S * 1000), uptime_str, _session_count, _command_count,
                              cpu_pct, load_label)
-    return theme.panel("System Uptime", body, icon_svg=theme.CLOCK_SVG)
+    return theme.panel("System Uptime", body, icon_svg=theme.CLOCK_SVG, badge="purple")
+
+
+def system_modal_html(cpu_pct: float) -> str:
+    """System Stats + System Uptime together, for the System tile's modal (see notch_panel_html) -
+    the old dashboard showed these as two separate cards; the modal combines them into one
+    detail view, same underlying data as system_stats_html/uptime_html above."""
+    vm = psutil.virtual_memory()
+    disk = psutil.disk_usage(str(Path(settings.data_dir).anchor or "/"))
+    stats_body = theme.system_stats_body(
+        cpu_pct, vm.percent, vm.used / 1e9, vm.total / 1e9, disk.used / 1e9, disk.total / 1e9)
+    elapsed = int(_time.time() - _APP_START_EPOCH_S)
+    h, rem = divmod(elapsed, 3600)
+    m, s = divmod(rem, 60)
+    uptime_str = f"{h:02d}:{m:02d}:{s:02d}"
+    load_label = "High" if cpu_pct >= 70 else ("Moderate" if cpu_pct >= 30 else "Low")
+    uptime_bd = theme.uptime_body(int(_APP_START_EPOCH_S * 1000), uptime_str, _session_count, _command_count,
+                                  cpu_pct, load_label)
+    return (theme.modal_section("System Stats", theme.CPU_SVG, stats_body) +
+           theme.modal_section("System Uptime", theme.CLOCK_SVG, uptime_bd))
 
 
 def dashboard_panels(state: ConversationState | None):
-    """Read-only HTML for the dashboard cards. Called on load, every DASHBOARD_POLL_SECONDS,
-    and after any turn or reminder/task-affecting action so they stay live. Also builds the three
+    """Read-only HTML for the (now off-screen, see #hidden-cards) compact cards and the four
     card-detail modals' content (always kept fresh in the DOM even while closed - see
     theme.JS's awaazOpenModal), so opening one never shows a stale snapshot from whenever the
-    page last polled before the click."""
+    page last polled before the click. Called on load, every DASHBOARD_POLL_SECONDS, and after
+    any turn or reminder/task-affecting action."""
     today = tasks.today_local()
     now_local = datetime.now(settings.tz)
 
@@ -301,7 +322,8 @@ def dashboard_panels(state: ConversationState | None):
                 r.local_due.date() == today)
                for r in all_rems]
     reminders_html = theme.panel("Reminders", theme.reminder_list(rem_rows[:8], "No upcoming reminders"),
-                                 len(all_rems), icon_svg=theme.BELL_SVG, onclick="awaazOpenModal('reminders')")
+                                 len(all_rems), icon_svg=theme.BELL_SVG, onclick="awaazOpenModal('reminders')",
+                                 badge="amber")
     reminders_modal_html = theme.modal_section("All Reminders", theme.BELL_SVG,
                                                theme.reminder_list(rem_rows, "No upcoming reminders"))
 
@@ -314,7 +336,7 @@ def dashboard_panels(state: ConversationState | None):
     progress_html = theme.progress_bar(prog.percent, f"{prog.completed}/{prog.total} · {fmt_month(month)}")
     tasks_body = theme.task_list(task_rows[:8], "No tasks this month") + progress_html
     tasks_html = theme.panel("Tasks", tasks_body, f"{prog.completed}/{prog.total}", icon_svg=theme.CHECKLIST_SVG,
-                             onclick="awaazOpenModal('tasks')")
+                             onclick="awaazOpenModal('tasks')", badge="green")
     tasks_modal_html = theme.modal_section(
         f"Tasks — {fmt_month(month)}", theme.CHECKLIST_SVG,
         theme.task_list(task_rows, "No tasks this month") + progress_html)
@@ -343,7 +365,7 @@ def dashboard_panels(state: ConversationState | None):
         weather_html_body = theme.weather_body("--", error or "unavailable", city, theme.CLOUD_SVG)
         weather_modal_body = weather_html_body
     weather_html = theme.panel("Weather", weather_html_body, icon_svg=theme.CLOUD_SVG,
-                               onclick="awaazOpenModal('weather')")
+                               onclick="awaazOpenModal('weather')", badge="sky")
     weather_modal_html = theme.modal_section("7-Day Forecast", theme.CLOUD_SVG, weather_modal_body)
 
     # One shared reading: psutil.cpu_percent(interval=None) measures usage since its OWN last
@@ -351,7 +373,7 @@ def dashboard_panels(state: ConversationState | None):
     # elapsed time and always come back near 0%.
     cpu_pct = psutil.cpu_percent(interval=None)
     return (reminders_html, tasks_html, weather_html, system_stats_html(cpu_pct), uptime_html(cpu_pct),
-           weather_modal_html, tasks_modal_html, reminders_modal_html)
+           weather_modal_html, tasks_modal_html, reminders_modal_html, system_modal_html(cpu_pct))
 
 
 def toggle_task_status(trigger_value: str, state: ConversationState | None):
@@ -416,24 +438,27 @@ def build_ui() -> gr.Blocks:
         # actually triggers the server call - see its js= wiring below for why.
         task_toggle_trigger = gr.Textbox(elem_id="task-toggle-trigger", render=False)
         task_toggle_btn = gr.Button(elem_id="task-toggle-btn", render=False)
-        reminders_panel = gr.HTML(render=False)
-        tasks_panel = gr.HTML(render=False)
+        reminders_panel = gr.HTML(elem_id="reminders-card", render=False)
+        tasks_panel = gr.HTML(elem_id="tasks-card", render=False)
         weather_panel = gr.HTML(elem_id="weather-card", render=False)
         sys_stats_panel = gr.HTML(render=False)
         uptime_panel = gr.HTML(render=False)
         weather_modal_panel = gr.HTML(elem_id="modal-weather-content", elem_classes="modal-section", render=False)
         tasks_modal_panel = gr.HTML(elem_id="modal-tasks-content", elem_classes="modal-section", render=False)
         reminders_modal_panel = gr.HTML(elem_id="modal-reminders-content", elem_classes="modal-section", render=False)
+        system_modal_panel = gr.HTML(elem_id="modal-system-content", elem_classes="modal-section", render=False)
 
         with gr.Column(elem_id="app-root"):
             gr.HTML(theme.topbar_html())
+            gr.HTML(theme.notch_launcher_html())
+            gr.HTML(theme.notch_panel_html())
 
             # off-canvas conversation drawer (opened by the ☰ / ⚙ buttons in the top bar)
             gr.HTML('<div id="scrim" onclick="awaazToggleSidebar()"></div>')
 
-            # card detail modals (Weather / Tasks / Reminders) - hidden by default, toggled by
-            # awaazOpenModal/awaazCloseModal in theme.JS; content stays populated even while
-            # closed so it's never stale on open (see dashboard_panels in app.py).
+            # card detail modals (Weather / Tasks / Reminders / System) - hidden by default,
+            # toggled by awaazOpenModal/awaazCloseModal in theme.JS; content stays populated even
+            # while closed so it's never stale on open (see dashboard_panels in app.py).
             gr.HTML(theme.modal_shell_html())
             with gr.Column(elem_id="modal-panel"):
                 gr.HTML('<button class="modal-close" onclick="awaazCloseModal()" title="Close">✕</button>')
@@ -441,6 +466,7 @@ def build_ui() -> gr.Blocks:
                     weather_modal_panel.render()
                     tasks_modal_panel.render()
                     reminders_modal_panel.render()
+                    system_modal_panel.render()
 
             with gr.Column(elem_id="sidebar"):
                 gr.HTML(theme.sidebar_header_html())
@@ -483,33 +509,40 @@ def build_ui() -> gr.Blocks:
                                         container=False, elem_id="mic-lang",
                                         info="🎤 Speech language (fixes mis-transcribed Nepali)")
 
-            # ── dashboard: live cards | voice orb | conversation ──────────
-            with gr.Row(elem_id="dashboard"):
-                with gr.Column(elem_id="left-rail"):
-                    sys_stats_panel.render()
-                    weather_panel.render()
-                    tasks_panel.render()
-                    reminders_panel.render()
-                    uptime_panel.render()
+            # Tasks/Reminders/Weather/System compact card HTML, kept rendered (off-screen, not
+            # display:none) purely because theme.JS's syncNotchCounts()/syncWeatherChip() still
+            # read live numbers off #tasks-card/#reminders-card/#weather-card - the visible
+            # dashboard grid they used to sit in is gone (see #chat-view below instead).
+            with gr.Column(elem_id="hidden-cards"):
+                sys_stats_panel.render()
+                weather_panel.render()
+                tasks_panel.render()
+                reminders_panel.render()
+                uptime_panel.render()
 
-                with gr.Column(elem_id="center-screen"):
-                    gr.HTML(theme.voice_orb_html())
-                    with gr.Row(elem_id="audio-row"):
-                        audio_out.render()
-                        stop_audio_btn.render()
-                    mic_upload.render()
-                    task_toggle_trigger.render()
-                    task_toggle_btn.render()
-
-                with gr.Column(elem_id="right-rail"):
-                    with gr.Row(elem_id="convo-head"):
-                        gr.HTML("<h2>Conversation</h2>")
-                        with gr.Row(elem_id="convo-actions"):
-                            clear_btn = gr.Button("🗑 Clear", elem_classes="chip-btn", size="sm")
-                            extract_btn = gr.DownloadButton("⬇ Extract Conversation", elem_id="extract-btn",
-                                                            elem_classes="chip-btn", size="sm")
-                    chatbot.render()
-                    status_line.render()
+            # ── chat-view: the only "opened" interface now - mascot, live conversation, voice
+            # and text, all in one floating card (see theme.py's #chat-view CSS). Tasks/
+            # Reminders/Weather/System's own detail still lives in the modals above, reached
+            # from the quick panel without ever opening this view.
+            with gr.Column(elem_id="chat-view"):
+                with gr.Row(elem_id="chat-view-header"):
+                    gr.HTML(theme.chat_view_header_html())
+                    clear_btn = gr.Button("🗑 Clear", elem_classes="chip-btn", size="sm")
+                    extract_btn = gr.DownloadButton("⬇ Extract", elem_id="extract-btn",
+                                                    elem_classes="chip-btn", size="sm")
+                chatbot.render()
+                status_line.render()
+                with gr.Row(elem_id="audio-row"):
+                    audio_out.render()
+                    stop_audio_btn.render()
+                mic_upload.render()
+                task_toggle_trigger.render()
+                task_toggle_btn.render()
+                # The mic (same tap-to-talk voice session as before - orb/wake-word/barge-in
+                # all unchanged) sits right beside the text composer in one row, instead of in
+                # its own section above it.
+                with gr.Row(elem_id="chat-input-row"):
+                    gr.HTML(theme.voice_orb_html(), elem_id="voice-orb-wrap")
                     with gr.Column(elem_id="composer-wrap"):
                         with gr.Row(elem_id="composer"):
                             text_in.render()
@@ -518,7 +551,7 @@ def build_ui() -> gr.Blocks:
         # ── events ───────────────────────────────────────────────────────
         turn_outputs = [chatbot, active_id, convo_state, text_in, status_line, audio_out, conv_list]
         dashboard_outputs = [reminders_panel, tasks_panel, weather_panel, sys_stats_panel, uptime_panel,
-                            weather_modal_panel, tasks_modal_panel, reminders_modal_panel]
+                            weather_modal_panel, tasks_modal_panel, reminders_modal_panel, system_modal_panel]
 
         text_in.submit(text_turn, [text_in, chatbot, active_id, convo_state, autoplay_cb], turn_outputs
                        ).then(dashboard_panels, convo_state, dashboard_outputs)
@@ -551,7 +584,10 @@ def build_ui() -> gr.Blocks:
 
         autoplay_cb.change(on_autoplay_change, autoplay_cb)
         audio_out.change(lambda a: gr.update(visible=a is not None), audio_out, stop_audio_btn)
-        stop_audio_btn.click(stop_audio, outputs=audio_out)
+        # js= fires first, synchronously, so playback stops instantly client-side — same guarantee
+        # barge-in already has (see theme.JS's awaazStopSpeaking) — instead of waiting on the
+        # server round-trip that clears audio_out to also silence the <audio> element.
+        stop_audio_btn.click(stop_audio, outputs=audio_out, js="() => { awaazStopSpeaking(); }")
 
         gr.Timer(REMINDER_POLL_SECONDS).tick(
             poll_due_reminders, [chatbot, active_id, convo_state, autoplay_cb],
@@ -575,7 +611,7 @@ def main() -> None:
     initial_theme = user_settings.get_settings().theme
     build_ui().queue().launch(
         server_name=settings.server_host, server_port=settings.server_port, auth=auth,
-        theme=theme.THEME, css=theme.CSS, head=theme.head(initial_theme),
+        theme=theme.THEME, css=theme.CSS, head=theme.head(initial_theme, settings.wake_phrases),
     )
 
 

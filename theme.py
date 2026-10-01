@@ -10,6 +10,7 @@ weather, tasks, reminders, uptime) from data app.py hands it.
 from __future__ import annotations
 
 import html
+import json
 import math
 
 import gradio as gr
@@ -106,12 +107,12 @@ footer { display: none !important; }
 h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
 
 /* ── top bar ──────────────────────────────────────────── */
-#topbar { position: relative; z-index: 3; display: flex; align-items: center; gap: 14px;
+/* z-index:55 (above #sidebar's 50 and #scrim's 45, below the modals' 90+): the sidebar spans
+   top:0 to bottom:0, so without this it would cover the topbar's own Home/Chat icons whenever
+   open - including the Chat icon that's supposed to close it again. */
+#topbar { position: relative; z-index: 55; display: flex; align-items: center; gap: 14px;
   padding: 10px 18px; border-bottom: 1px solid var(--border);
   background: linear-gradient(180deg, var(--panel-2), var(--panel)) !important; flex-wrap: wrap; }
-#menu-btn { background: rgba(79,139,255,.08) !important; border: 1px solid var(--border) !important;
-  color: var(--accent) !important; min-width: 38px; height: 38px; border-radius: 10px !important; }
-#menu-btn svg { width: 18px !important; height: 18px !important; flex: none; }
 #topbar .brand-wrap { display: flex; align-items: center; gap: 10px; }
 #topbar .brand { font-weight: 800; font-size: 1.05rem; letter-spacing: .28em;
   background-image: linear-gradient(120deg, var(--accent), var(--accent-2)) !important;
@@ -139,35 +140,201 @@ h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
 .hud-icon:hover { color: var(--accent) !important; border-color: var(--border-strong) !important; background: var(--accent-soft); }
 .hud-icon svg { width: 17px; height: 17px; }
 
-/* ── dashboard grid: left cards | center orb | right conversation ───────── */
-#dashboard { position: relative; z-index: 1; flex: 1 1 auto; min-height: 0; display: grid;
-  grid-template-columns: 288px minmax(360px, 1fr) 372px; gap: 16px; padding: 16px 18px;
-  grid-auto-rows: 100%; }
-/* CSS Grid's auto-row sizing doesn't reliably measure a flex-wrap child's true content height
-   (the #left-rail column of cards), so narrow screens drop the grid entirely for a plain
-   vertical flex stack instead - simpler and predictable rather than fighting that sizing quirk.
-   flex:none on the three sections is required here too: Gradio's own Column CSS defaults every
-   gr.Column to flex:1 1 0%, which - once #dashboard itself becomes a flex container - divides
-   its height evenly across all three regardless of their actual content, instead of sizing each
-   to fit; the overflow then spills silently onto the next section instead of pushing it down. */
-@media (max-width: 1180px) { #dashboard { display: flex; flex-direction: column; flex-wrap: nowrap;
-  overflow-y: auto; height: 100%; }
-  #left-rail, #center-screen, #right-rail { flex: none; } }
+/* ── notch-pill icon clusters (Home / Chat / + on the left, Gear / Speaker on the right) ──
+   A rounder, fully-circular take on .hud-icon for the two button groups bookending the top
+   bar — purely a shape/shell treatment, each icon still fires a real existing action (see
+   topbar_html()), never a decorative no-op. */
+.pill-cluster { display: flex; align-items: center; gap: 6px; padding: 5px; border-radius: 999px;
+  background: rgba(255,255,255,.025); border: 1px solid var(--border); flex: none; }
+.pill-icon { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+  background: transparent; border: none; color: var(--muted) !important; cursor: pointer;
+  transition: color .15s ease, background .15s ease, transform .1s ease; }
+.pill-icon:hover { color: var(--accent) !important; background: var(--accent-soft); }
+.pill-icon:active { transform: scale(.92); }
+/* Home/Chat act as a 2-way tab indicator (see awaazSyncTopbarActive in theme.JS): whichever one
+   names what's currently showing (the chat view, or the conversation-history drawer) gets this
+   highlight, the same way a segmented control marks its selected tab. */
+.pill-icon.active { background: rgba(255,255,255,.1); color: var(--text) !important; }
+.pill-icon svg { width: 16px; height: 16px; }
+.pill-icon--plus { background: linear-gradient(140deg, var(--accent-2), var(--accent)); color: #06131f !important; }
+.pill-icon--plus:hover { background: linear-gradient(140deg, var(--accent-2), var(--accent)); color: #06131f !important; filter: brightness(1.08); }
 
-/* Grid rows default to auto-sizing around their tallest item's natural content height, which
-   would let the cards stack here grow the whole row (and leak past #app-root's clip) instead of
-   scrolling internally - grid-auto-rows:100% above plus height:100% here keeps this column
-   clipped to the row it was actually given, so overflow-y:auto has a real overflow to scroll. */
-/* flex-wrap:nowrap is explicit, not the default, because Gradio's own Column CSS sets
-   flex-wrap:wrap on every gr.Column by default - without this override the 5th card wraps into
-   a second, horizontally-offset column instead of stacking, invisibly overlapping center-screen. */
-#left-rail { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 14px; height: 100%;
-  min-height: 0; overflow-y: auto; padding-right: 2px; }
-@media (max-width: 1180px) { #left-rail { flex-direction: column; flex-wrap: nowrap; height: auto; overflow: visible; } }
-@media (max-width: 1180px) { #center-screen, #right-rail { height: auto; min-height: 480px; } }
+/* ── Coucou-style 3-state notch: collapsed (small pill) -> panel (quick view) -> full (the
+   mascot + live conversation + voice + text chat view - the only "opened" interface now; the
+   old stats/orb/sidebar dashboard grid was removed, its functionality folded in here, in
+   modals, and in the always-present sidebar - see app.py's build_ui()). Switching states never
+   rebuilds or refetches anything, it only shows/hides what's already there. Defaults to
+   collapsed (see head()'s html[data-notch] init script), so a first-time visitor sees the small
+   pill first. The pill/panel/chat-view subtree is deliberately theme-independent (hardcoded dark
+   colors, not var(--bg)/var(--text)) so it reads like a fixed black notch island regardless of
+   the app's own light/dark toggle underneath it. */
+/* Topbar only shows alongside the full chat view, not the quick panel - the panel is meant to
+   float on its own (see the reference: mascot card + tiles, nothing above it). */
+html[data-notch="collapsed"] #topbar,
+html[data-notch="panel"] #topbar { display: none !important; }
+/* !important on both show-overrides below: Gradio auto-prefixes plain class rules with its own
+   `.gradio-container... .contain` scope, which inflates the base `display: none` rules' real
+   specificity past these html[data-notch]-qualified overrides (whose own auto-prefixed copies
+   can never match, since `html` can never be a descendant of `.contain`) — so without
+   !important here the base rules would win and neither layer would ever show. */
+.notch-launcher, .notch-panel, #chat-view { display: none; }
+html[data-notch="collapsed"] .notch-launcher { display: flex !important; }
+html[data-notch="panel"] .notch-panel { display: flex !important; }
+html[data-notch="full"] #chat-view { display: flex !important; }
+
+/* ── mascot: a small white blob with two dot eyes that track the cursor (see
+   awaazTrackMascotEyes in theme.JS). Used at both sizes below. ── */
+.mascot { position: relative; flex: none; background: linear-gradient(165deg, #ffffff, #e6e9f0);
+  border-radius: 46% 46% 50% 50% / 60% 60% 40% 40%;
+  box-shadow: inset 0 -3px 5px rgba(0,0,0,.1), 0 2px 8px rgba(0,0,0,.3);
+  animation: mascot-bob 3.4s ease-in-out infinite; }
+@keyframes mascot-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+.mascot-sm { width: 30px; height: 26px; }
+.mascot-md { width: 42px; height: 36px; }
+.mascot-lg { width: 60px; height: 52px; }
+.mascot-eye { position: absolute; top: 48%; border-radius: 50%; background: #1b1d24;
+  transform: translate(-50%, -50%); transition: transform .06s ease-out; }
+.mascot-sm .mascot-eye { width: 4px; height: 4px; }
+.mascot-md .mascot-eye { width: 5px; height: 5px; }
+.mascot-lg .mascot-eye { width: 7px; height: 7px; }
+.mascot .mascot-eye:nth-child(1) { left: 38%; }
+.mascot .mascot-eye:nth-child(2) { left: 62%; }
+
+/* ── collapsed: mascot + a 2x2 grid of dot-capsules (purely a decorative "stuff is connected"
+   indicator, like the reference — identity/labels only appear once the panel is open). Draggable
+   anywhere on screen (see awaazInitNotchDrag in theme.JS); fully rounded since it's no longer
+   pinned to the top edge, and its position is restored from localStorage on load. ── */
+.notch-launcher { position: fixed; z-index: 40; top: 0; left: 50%; transform: translateX(-50%);
+  align-items: center; justify-content: center; gap: 14px; height: 52px; padding: 0 20px;
+  min-width: 190px; border-radius: 999px; cursor: grab;
+  background: #0a0a0d; border: 1px solid rgba(94,195,255,.16);
+  box-shadow: 0 14px 34px -16px rgba(0,0,0,.7);
+  transition: border-color .15s ease; touch-action: none; }
+.notch-launcher:hover { border-color: rgba(94,195,255,.32); }
+.notch-launcher.dragging { cursor: grabbing; transition: none; }
+.notch-pips { display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px; }
+.notch-pip { width: 26px; height: 15px; border-radius: 999px; display: flex; align-items: center;
+  justify-content: center; gap: 4px; flex: none; }
+.notch-pip-dot { width: 4px; height: 4px; border-radius: 50%; background: rgba(0,0,0,.55); flex: none; }
+
+/* ── panel: the compact quick view shown after tapping the pill — a status/launch card next to
+   a grid of the live feature cards, reached one tap earlier than the full dashboard. Positioned
+   in JS (awaazOpenNotchPanel) next to wherever the pill currently is, since the pill is now
+   draggable; top/left here are just the pre-first-open fallback. ── */
+.notch-panel { position: fixed; z-index: 35; top: 54px; left: 50%; transform: translateX(-50%);
+  width: min(560px, calc(100vw - 32px)); gap: 12px; padding: 14px;
+  background: #0a0a0d; border: 1px solid rgba(94,195,255,.16); border-radius: 22px;
+  box-shadow: 0 24px 60px -20px rgba(0,0,0,.65); animation: notch-panel-in .18s ease-out; }
+@keyframes notch-panel-in { from { opacity: 0; } to { opacity: 1; } }
+
+.notch-hero { flex: 1; display: flex; align-items: center; gap: 12px; padding: 14px;
+  border-radius: 16px; background: #14161d; border: 1px solid rgba(94,195,255,.14);
+  cursor: pointer; text-align: left; font: inherit; color: inherit;
+  transition: border-color .15s ease, transform .1s ease; }
+.notch-hero:hover { border-color: rgba(94,195,255,.32); transform: translateY(-1px); }
+.notch-hero-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.notch-hero-title { font-weight: 700; font-size: .92rem; color: #e9f1fb; }
+.notch-hero-status { display: flex; align-items: center; gap: 6px; font-size: .72rem; color: #8a97ad; }
+.notch-hero-status .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--good); flex: none;
+  animation: pulse-dot 2.2s ease-out infinite; }
+.notch-hero-cta { margin-top: 2px; font-size: .72rem; font-weight: 600; color: #4fd1ff; }
+
+.notch-grid { flex: 1; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.notch-tile { display: flex; align-items: center; gap: 8px; padding: 9px 11px; border-radius: 14px;
+  background: #14161d; border: 1px solid rgba(94,195,255,.14); cursor: pointer; font: inherit;
+  color: #e9f1fb; transition: border-color .15s ease, transform .1s ease; }
+.notch-tile:hover { border-color: rgba(94,195,255,.32); transform: translateY(-1px); }
+.notch-tile .badge { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+.notch-tile .badge svg { width: 12px; height: 12px; color: #06131f !important; }
+.notch-tile-label { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; min-width: 0; }
+.notch-tile-label span { font-size: .78rem; font-weight: 600; }
+.notch-tile-label small { font-size: .62rem; font-weight: 600; color: #6f7c92; font-family: 'JetBrains Mono', monospace; }
+
+@media (max-width: 560px) {
+  .notch-panel { flex-direction: column; }
+}
+
+/* ── full: the only "opened" interface now — a floating rounded card below #topbar (unchanged)
+   holding the mascot, the live conversation (the real gr.Chatbot, relocated here - see app.py),
+   voice controls (the real voice orb + dock, just compact-sized below) and the real text
+   composer. Nothing here is a second copy of anything - these are the exact same components the
+   old dashboard used, just rendered in this container instead. Its own CSS custom properties are
+   redeclared with fixed dark values (not inherited from :root) so every theme-aware component
+   embedded in it (chatbot bubbles, orb, status pill, dock, composer) stays legible against this
+   always-dark card regardless of the app's own light/dark toggle. ── */
+#chat-view {
+  --bg: #0a0a0d; --panel: #14161d; --panel-2: #14161d; --border: rgba(94,195,255,.16);
+  --border-strong: rgba(94,195,255,.32); --text: #e9f1fb; --muted: #8a97ad; --faint: #566378;
+  --accent: #4fd1ff; --accent-2: #4b8bff; --accent-soft: rgba(79,209,255,.10);
+  --good: #34d399; --good-soft: rgba(52,211,153,.12); --warn: #f5c451; --warn-soft: rgba(245,196,81,.12);
+  position: fixed; z-index: 30; top: 70px; left: 50%; transform: translateX(-50%);
+  width: min(720px, calc(100vw - 32px)); height: auto; max-height: min(340px, calc(100vh - 110px));
+  flex-direction: column; gap: 4px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 26px;
+  box-shadow: 0 30px 70px -24px rgba(0,0,0,.65); overflow: hidden;
+  animation: notch-panel-in .18s ease-out; }
+#chat-view-header { position: relative; flex: none; display: flex !important; align-items: center;
+  gap: 10px; padding: 10px 16px; }
+.chat-view-glow { position: absolute; top: -60%; left: 10%; width: 40%; aspect-ratio: 1;
+  border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, rgba(79,139,255,.22), rgba(79,139,255,0) 70%); }
+/* mascot + title in their own row - see chat_view_header_html()'s docstring for why this can't
+   just rely on the outer #chat-view-header row to lay them out side by side. */
+.chat-view-brand { position: relative; z-index: 1; display: flex; align-items: center; gap: 8px; flex: 1; }
+.chat-view-title { font-weight: 700; font-size: .88rem; color: var(--text) !important; }
+#chat-view .chip-btn { position: relative; z-index: 1; }
+
+/* height:auto on #chat-view above means this no longer stretches to fill a tall fixed-height
+   card while empty (conversation_welcome_html() is blank on purpose, see app.py) - min-height
+   keeps a little breathing room for the first reply, max-height plus its own scroll is what
+   kicks in once a conversation actually grows past that. */
+#chat-view #chatbot { flex: 0 1 auto; min-height: 60px; max-height: 180px; padding: 0 6px; }
+/* Gradio's own inner wrapper divs for Chatbot carry their own min-height (independent of the
+   #chatbot rule above, which only bounds the outer element) - without zeroing those too, an
+   empty conversation still reserves Gradio's default empty-state height regardless. */
+#chat-view #chatbot > div { min-height: 0 !important; }
+#chat-view #status-line { padding: 0 21px; }
+
+/* ── the mic sits right beside the composer, in the same row, instead of its own section above
+   it. It's still the exact same tap-to-talk voice session (orb/wake-word/barge-in all unchanged
+   JS) - only the big ring/core/wave-bars visualisation and the now-redundant keyboard/history
+   dock buttons (the composer is always visible right here; conversation history already has its
+   own topbar icon) are hidden. The mic button's own state styling (.recording/.speaking/.conv-on,
+   all pre-existing) is what shows session state now, instead of the separate status pill. ── */
+#chat-input-row { display: flex !important; align-items: center; gap: 8px; padding: 8px 16px 16px; }
+/* width:auto !important is required: Gradio's own .block wrapper class (applied to every
+   gr.HTML component, including this one) sets width:100% by default, which would otherwise
+   stretch this to fill the row and push the composer onto its own line below instead of
+   beside it. */
+#voice-orb-wrap { flex: none; width: auto !important; display: flex !important; align-items: center;
+  gap: 6px; padding: 0; }
+#voice-orb-wrap .orb-wrap, #voice-orb-wrap .brand-title, #voice-orb-wrap .status-pill,
+#voice-orb-wrap .dock-btn:not(.dock-btn--wake):not(.dock-btn--mic) { display: none; }
+#voice-orb-wrap .dock { gap: 6px; }
+#voice-orb-wrap .dock-btn { width: 36px; height: 36px; }
+#voice-orb-wrap .dock-btn svg { width: 15px; height: 15px; flex: none; }
+#voice-orb-wrap .dock-btn--mic { width: 42px; height: 42px; }
+#voice-orb-wrap #end-conv-btn { height: 22px; min-width: 56px; font-size: .62rem; }
+
+#chat-view #composer-wrap { flex: 1; min-width: 0; padding: 0; border-top: none; }
+#chat-view #composer-input textarea, #chat-view #composer-input input {
+  background: rgba(255,255,255,.05) !important; border-radius: 999px !important; padding: 10px 16px !important; }
+#chat-view #send-btn { border-radius: 50% !important; background: var(--text) !important;
+  color: var(--bg) !important; }
+
+@media (max-width: 480px) {
+  #chat-view { width: calc(100vw - 24px); }
+}
+
+/* #hidden-cards: the compact Tasks/Reminders/Weather/System card HTML used to render visibly in
+   the old dashboard grid (now removed) - it's kept rendered (off-screen, not display:none) only
+   because syncNotchCounts() and syncWeatherChip() in theme.JS still read live numbers off of it
+   (#tasks-card/#reminders-card/#weather-card), same off-screen technique as #mic-upload below. */
+#hidden-cards { position: absolute !important; left: -9999px !important; width: 1px !important;
+  height: 1px !important; overflow: hidden !important; }
 
 .card { background: linear-gradient(180deg, var(--panel-2), var(--panel)); border: 1px solid var(--border);
-  border-radius: 14px; padding: 14px 15px 14px; box-shadow: 0 14px 34px -20px rgba(0,0,0,.6); flex: none; }
+  border-radius: 20px; padding: 14px 15px 14px; box-shadow: 0 14px 34px -20px rgba(0,0,0,.6); flex: none; }
 .card.clickable { cursor: pointer; transition: border-color .15s ease, transform .15s ease; }
 .card.clickable:hover { border-color: var(--border-strong); transform: translateY(-1px); }
 .card.clickable:active { transform: translateY(0); }
@@ -175,6 +342,18 @@ h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
 .card-title { display: flex; align-items: center; gap: 8px; font-size: .82rem; font-weight: 700;
   color: var(--text) !important; letter-spacing: .02em; }
 .card-title svg { width: 15px; height: 15px; color: var(--accent) !important; flex: none; }
+
+/* ── per-card colored icon badge (Coucou-style integration dots: each card gets its own hue
+   instead of sharing one global accent colour, so the left rail reads as a set of distinct
+   cards at a glance) — wraps the existing icon_svg, doesn't replace it. */
+.card-title .badge { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+.card-title .badge svg { width: 13px; height: 13px; color: #06131f !important; }
+.badge-blue { background: linear-gradient(140deg, #6fd8ff, #4b8bff); }
+.badge-sky { background: linear-gradient(140deg, #8fe8ff, #4fd1ff); }
+.badge-green { background: linear-gradient(140deg, #6ee7b7, #34d399); }
+.badge-amber { background: linear-gradient(140deg, #fde68a, #f5c451); }
+.badge-purple { background: linear-gradient(140deg, #c4b5fd, #a78bfa); }
+.badge-pink { background: linear-gradient(140deg, #fda4af, #fb7185); }
 .count-pill { font-size: .68rem; font-weight: 600; color: var(--muted) !important; background: rgba(255,255,255,.03);
   border: 1px solid var(--border); padding: 2px 8px; border-radius: 999px; white-space: nowrap;
   font-family: 'JetBrains Mono', monospace; }
@@ -239,9 +418,7 @@ h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
 .uptime-row .stat-label { margin: 0; }
 .uptime-value { font-size: .78rem; color: var(--text) !important; font-family: 'JetBrains Mono', monospace; }
 
-/* ── center: voice orb ───────────────────────────────────── */
-#center-screen { position: relative; z-index: 1; display: flex; flex-direction: column; flex-wrap: nowrap;
-  align-items: center; justify-content: center; gap: 22px; height: 100%; min-height: 0; padding: 10px; }
+/* ── voice orb (now lives inside #chat-view, compact-sized there - see that section's CSS) ── */
 .orb-wrap { position: relative; width: 240px; height: 240px; display: flex; align-items: center; justify-content: center; }
 .orb-ring { position: absolute; border-radius: 50%; border: 1px solid var(--border-strong); }
 .ring-1 { inset: 0; animation: orb-spin 26s linear infinite; border-style: dashed; opacity: .5; }
@@ -257,6 +434,11 @@ h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
   50% { box-shadow: 0 0 66px -4px rgba(79,209,255,.48), inset 0 0 42px rgba(79,209,255,.18); } }
 .orb-wrap.st-user_speaking .orb-core { border-color: rgba(239,68,68,.5);
   box-shadow: 0 0 54px -4px rgba(239,68,68,.4), inset 0 0 34px rgba(239,68,68,.14); }
+.orb-wrap.st-wake_listening .orb-core { opacity: .78; animation: orb-breathe 4.6s ease-in-out infinite; }
+.orb-wrap.st-awake .orb-core { border-color: rgba(52,211,153,.6);
+  box-shadow: 0 0 70px -2px rgba(52,211,153,.55), inset 0 0 40px rgba(52,211,153,.2); }
+.orb-wrap.st-stopped .orb-core, .orb-wrap.st-error .orb-core { border-color: rgba(242,89,107,.55);
+  box-shadow: 0 0 54px -4px rgba(242,89,107,.4), inset 0 0 34px rgba(242,89,107,.14); }
 .wave-bars { display: flex; align-items: center; gap: 4px; height: 26px; }
 .wave-bars i { width: 3px; border-radius: 3px; background: var(--accent); display: block; height: 6px;
   transition: height .09s ease; }
@@ -293,6 +475,9 @@ h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
   box-shadow: 0 0 0 4px rgba(242,89,107,.22), 0 10px 26px -8px rgba(242,89,107,.6); }
 .dock-btn--mic.speaking { animation: mic-speak-pulse 1.8s ease-in-out infinite; }
 @keyframes mic-speak-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(79,209,255,.4) } 50% { box-shadow: 0 0 0 8px rgba(79,209,255,0) } }
+.dock-btn--wake.wake-on { color: var(--good) !important; border-color: rgba(52,211,153,.5) !important;
+  box-shadow: 0 0 0 3px rgba(52,211,153,.18); animation: wake-pulse 2.4s ease-in-out infinite; }
+@keyframes wake-pulse { 0%,100% { box-shadow: 0 0 0 3px rgba(52,211,153,.18) } 50% { box-shadow: 0 0 0 6px rgba(52,211,153,.05) } }
 #end-conv-btn { min-width: 68px; height: 26px; border-radius: 13px; white-space: nowrap;
   background: rgba(242,89,107,.1); border: 1px solid rgba(242,89,107,.4); color: #f2596b !important; font-size: .7rem;
   padding: 0 10px; cursor: pointer; font-family: 'JetBrains Mono', monospace; display: none; }
@@ -305,14 +490,7 @@ h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
 #task-toggle-trigger, #task-toggle-btn { position: absolute !important; left: -9999px !important;
   width: 1px !important; height: 1px !important; overflow: hidden !important; }
 
-/* ── right: conversation panel ───────────────────────────── */
-#right-rail { display: flex; flex-direction: column; flex-wrap: nowrap; height: 100%; min-height: 0;
-  background: linear-gradient(180deg, var(--panel-2), var(--panel));
-  border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
-#convo-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 13px 15px;
-  border-bottom: 1px solid var(--border); flex-wrap: wrap; }
-#convo-head h2 { margin: 0; font-size: .92rem; font-weight: 700; color: var(--text) !important; }
-#convo-actions { display: flex; gap: 7px; flex: none; }
+/* ── conversation actions (Clear / Extract), now a small row inside #chat-view's header ── */
 .chip-btn { display: flex !important; align-items: center; gap: 5px !important; font-size: .72rem !important;
   font-weight: 600 !important; color: var(--muted) !important; background: rgba(255,255,255,.03) !important;
   border: 1px solid var(--border) !important; padding: 5px 10px !important; border-radius: 8px !important;
@@ -399,7 +577,7 @@ h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
 #app-root.modal-open #modal-backdrop { opacity: 1; pointer-events: auto; }
 #modal-panel { position: fixed; z-index: 91; top: 50%; left: 50%; width: min(560px, 92vw); max-height: 82vh;
   background: linear-gradient(180deg, var(--panel-2), var(--panel)) !important;
-  border: 1px solid var(--border-strong) !important; border-radius: 16px !important;
+  border: 1px solid var(--border-strong) !important; border-radius: 22px !important;
   box-shadow: 0 30px 70px -20px rgba(0,0,0,.6); display: flex !important; flex-direction: column !important;
   flex-wrap: nowrap !important; opacity: 0; pointer-events: none; overflow: hidden;
   transform: translate(-50%, -46%); transition: opacity .18s ease, transform .18s ease; }
@@ -425,7 +603,9 @@ h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
 #app-root.modal-tasks #modal-tasks-content,
 #app-root.modal-tasks #modal-tasks-content .modal-section,
 #app-root.modal-reminders #modal-reminders-content,
-#app-root.modal-reminders #modal-reminders-content .modal-section { display: block !important; flex: none !important; }
+#app-root.modal-reminders #modal-reminders-content .modal-section,
+#app-root.modal-system #modal-system-content,
+#app-root.modal-system #modal-system-content .modal-section { display: block !important; flex: none !important; }
 .modal-section h3 { margin: 0 0 14px; font-size: 1rem; font-weight: 700; color: var(--text) !important;
   display: flex; align-items: center; gap: 9px; padding-right: 34px; }
 .modal-section h3 svg { width: 17px; height: 17px; color: var(--accent) !important; flex: none; }
@@ -444,11 +624,7 @@ h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
   font-family: 'JetBrains Mono', monospace; }
 
 @media (max-width: 640px) {
-  #dashboard { padding: 10px; gap: 10px; }
   #topbar .brand small { display: none; }
-  .brand-title { font-size: 1.1rem; letter-spacing: .2em; }
-  .orb-wrap { width: 180px; height: 180px; }
-  .orb-core { width: 104px; height: 104px; }
   #modal-panel { width: 94vw; max-height: 88vh; }
   .forecast-cond { display: none; }
 }
@@ -457,12 +633,18 @@ h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
 
 # ── head: fonts + the small amount of client JS ─────────────────────────────
 
-def head(initial_theme: str) -> str:
+def head(initial_theme: str, wake_phrases: tuple[str, ...] = ("Hey Aawaz", "Aawaz")) -> str:
     theme = "light" if initial_theme == "light" else "dark"
+    # A plain global, set before the main script runs, is the whole "configuration point" for wake
+    # phrases: adding one is a .env edit (WAKE_PHRASES), never a code change — see config.py and
+    # README's "how to configure wake phrases".
+    phrases_json = json.dumps([p.lower() for p in wake_phrases if p.strip()])
     return f"""
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;800;900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script>document.documentElement.dataset.theme = localStorage.getItem("awaaz-theme") || "{theme}";</script>
+<script>document.documentElement.dataset.notch = localStorage.getItem("awaaz-notch") || "collapsed";</script>
+<script>window.AWAAZ_WAKE_PHRASES = {phrases_json};</script>
 <script>{JS}</script>
 """
 
@@ -477,16 +659,176 @@ JS = r"""
     try { localStorage.setItem("awaaz-theme", next); } catch (e) {}
   };
 
+  // ── Coucou-style 3-state notch: collapsed (small pill) -> panel (quick view) -> full (the
+  // chat view). Switching states never rebuilds or refetches anything, it only toggles which
+  // layer is visible (see CSS: html[data-notch]). ──
+  window.awaazSetNotch = function (state) {
+    document.documentElement.dataset.notch = state;
+    try { localStorage.setItem("awaaz-notch", state); } catch (e) {}
+    awaazSyncTopbarActive();
+  };
+  // Home/Chat act as a 2-way tab indicator: Home highlights while the chat view is open, Chat
+  // highlights while the conversation-history drawer is open (see .pill-icon.active in CSS).
+  window.awaazSyncTopbarActive = function () {
+    const home = document.querySelector('.pill-icon[title="Home"]');
+    const chat = document.querySelector('.pill-icon[title="Conversations"]');
+    const sidebarOpen = !!document.getElementById("app-root")?.classList.contains("sidebar-open");
+    const isFull = document.documentElement.dataset.notch === "full";
+    if (home) home.classList.toggle("active", isFull && !sidebarOpen);
+    if (chat) chat.classList.toggle("active", sidebarOpen);
+  };
+  // The notch state is restored directly onto html[data-notch] by head()'s init script, not
+  // through awaazSetNotch, so the initial sync needs its own call once the topbar actually
+  // exists (same reasoning as the other DOMContentLoaded/setInterval syncs in this file).
+  document.addEventListener("DOMContentLoaded", awaazSyncTopbarActive);
+  // Tapping outside the open quick-view panel collapses it back to the pill, same pattern as
+  // the sidebar's own outside-click-to-close below.
+  document.addEventListener("click", function (e) {
+    if (document.documentElement.dataset.notch !== "panel") return;
+    const panel = document.querySelector(".notch-panel");
+    // #topbar is excluded because it's visible during "panel" too and manages notch state
+    // itself (e.g. the minimize button) - without this, any topbar click would immediately
+    // re-collapse the panel it had just switched to, on the very same bubbling click event.
+    const opener = e.target.closest(".notch-launcher, #topbar");
+    if (panel && !panel.contains(e.target) && !opener) awaazSetNotch("collapsed");
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape" || document.documentElement.dataset.notch !== "panel") return;
+    // Defer to an open modal's own Escape handler first (closing the modal should never also
+    // collapse the panel underneath it) - a second Escape press then collapses the panel.
+    if (document.getElementById("app-root")?.classList.contains("modal-open")) return;
+    awaazSetNotch("collapsed");
+  });
+
+  // ── mascot eyes track the cursor, Coucou-style ──
+  // Cheap: on each mousemove, point every .mascot's eyes toward the cursor, clamped to a tiny
+  // radius so it reads as a glance. Works for every mascot instance (pill + panel hero) at once.
+  (function () {
+    const RADIUS = 2.4;
+    document.addEventListener("mousemove", function (e) {
+      document.querySelectorAll(".mascot").forEach(function (m) {
+        const r = m.getBoundingClientRect();
+        if (!r.width) return;
+        const dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+        const dist = Math.hypot(dx, dy) || 1;
+        const ex = (dx / dist) * RADIUS, ey = (dy / dist) * RADIUS;
+        m.querySelectorAll(".mascot-eye").forEach(function (eye) {
+          eye.style.transform = "translate(calc(-50% + " + ex + "px), calc(-50% + " + ey + "px))";
+        });
+      });
+    });
+  })();
+
+  // ── draggable pill: drag it anywhere on screen; a plain click (no real movement) still opens
+  // the quick panel, anchored next to wherever the pill currently sits. Position persists across
+  // reloads via localStorage. Listeners are delegated on document (not attached directly to the
+  // pill) because this script runs before Gradio has necessarily rendered .notch-launcher into
+  // the DOM yet - same reasoning as the setInterval-based syncs elsewhere in this file, just via
+  // delegation instead of polling, since mousedown/mousemove/mouseup all need document-wide reach
+  // anyway (a drag's pointer routinely leaves the pill's own bounds mid-gesture). ──
+  // This always runs one animation frame after the state switch that reveals the panel - by
+  // which point CSS has already hidden .notch-launcher (display: none), so getBoundingClientRect
+  // on it would read all zeros. Its inline left/top (set by the drag/restore code below) stay
+  // readable regardless of visibility, so those are the source of truth here instead.
+  // window.-qualified (not a plain function declaration): this whole JS blob is wrapped in one
+  // top-level IIFE (see the very first line of this file), so a plain declaration would only be
+  // visible inside that closure - invisible to the inline onclick="...requestAnimationFrame(
+  // awaazPositionNotchPanel)" on the minimize button below, which runs in global scope.
+  function awaazPillAnchor() {
+    const pill = document.querySelector(".notch-launcher");
+    if (!pill) return null;
+    const w = pill.offsetWidth || 220, h = pill.offsetHeight || 52;
+    if (pill.style.left && pill.style.top) {
+      return { left: parseFloat(pill.style.left), top: parseFloat(pill.style.top), width: w, height: h };
+    }
+    // Never dragged yet: mirror the CSS default (top: 0, horizontally centered).
+    return { left: window.innerWidth / 2 - w / 2, top: 0, width: w, height: h };
+  }
+  window.awaazPositionNotchPanel = function () {
+    const panel = document.querySelector(".notch-panel");
+    const anchor = awaazPillAnchor();
+    if (!panel || !anchor) return;
+    const pw = panel.offsetWidth, ph = panel.offsetHeight;
+    let x = Math.min(Math.max(anchor.left, 8), window.innerWidth - pw - 8);
+    let y = anchor.top + anchor.height + 10;
+    if (y + ph > window.innerHeight - 8) y = Math.max(anchor.top - ph - 10, 8);
+    panel.style.left = x + "px";
+    panel.style.top = y + "px";
+    panel.style.transform = "none";
+  };
+  (function () {
+    const POS_KEY = "awaaz-notch-pos";
+    function clamp(pill, x, y) {
+      return {
+        x: Math.min(Math.max(x, 4), window.innerWidth - pill.offsetWidth - 4),
+        y: Math.min(Math.max(y, 0), window.innerHeight - pill.offsetHeight - 4),
+      };
+    }
+    function place(pill, x, y) {
+      pill.style.left = x + "px";
+      pill.style.top = y + "px";
+      pill.style.transform = "none";
+    }
+    // Restore a saved position the first time the pill exists in the DOM.
+    let restored = false;
+    const restoreTimer = setInterval(function () {
+      const pill = document.querySelector(".notch-launcher");
+      if (!pill) return;
+      clearInterval(restoreTimer);
+      restored = true;
+      let saved = null;
+      try { saved = JSON.parse(localStorage.getItem(POS_KEY) || "null"); } catch (e) {}
+      if (saved) { const p = clamp(pill, saved.x, saved.y); place(pill, p.x, p.y); }
+    }, 150);
+
+    let dragging = false, moved = false, startX = 0, startY = 0, originX = 0, originY = 0;
+    document.addEventListener("mousedown", function (e) {
+      const pill = e.target.closest(".notch-launcher");
+      if (!pill) return;
+      dragging = true; moved = false;
+      startX = e.clientX; startY = e.clientY;
+      const r = pill.getBoundingClientRect();
+      originX = r.left; originY = r.top;
+      pill.classList.add("dragging");
+      e.preventDefault();
+    });
+    document.addEventListener("mousemove", function (e) {
+      if (!dragging) return;
+      const pill = document.querySelector(".notch-launcher");
+      if (!pill) return;
+      const dx = e.clientX - startX, dy = e.clientY - startY;
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) moved = true;
+      const p = clamp(pill, originX + dx, originY + dy);
+      place(pill, p.x, p.y);
+    });
+    document.addEventListener("mouseup", function () {
+      if (!dragging) return;
+      dragging = false;
+      const pill = document.querySelector(".notch-launcher");
+      if (pill) pill.classList.remove("dragging");
+      if (moved) {
+        if (pill) {
+          const r = pill.getBoundingClientRect();
+          try { localStorage.setItem(POS_KEY, JSON.stringify({ x: r.left, y: r.top })); } catch (e) {}
+        }
+      } else {
+        awaazSetNotch("panel");
+        requestAnimationFrame(awaazPositionNotchPanel);
+      }
+    });
+  })();
+
   // ── off-canvas conversation drawer ──
   window.awaazToggleSidebar = function () {
     const root = document.getElementById("app-root");
     if (root) root.classList.toggle("sidebar-open");
+    awaazSyncTopbarActive();
   };
   document.addEventListener("click", function (e) {
     const root = document.getElementById("app-root");
     if (!root || !root.classList.contains("sidebar-open")) return;
     const sidebar = document.getElementById("sidebar");
-    const opener = e.target.closest("#menu-btn, #history-btn");
+    const opener = e.target.closest("#menu-btn, #history-btn, .sidebar-opener");
     if (sidebar && !sidebar.contains(e.target) && !opener) root.classList.remove("sidebar-open");
   });
 
@@ -496,11 +838,11 @@ JS = r"""
     if (el) el.focus();
   };
 
-  // ── card detail modals (Weather / Tasks / Reminders) ──
-  // Content for all three is always kept live in the DOM (see dashboard_panels in app.py) so
+  // ── card detail modals (Weather / Tasks / Reminders / System) ──
+  // Content for all four is always kept live in the DOM (see dashboard_panels in app.py) so
   // opening one never shows stale data; only which one is visible is toggled here, via a class
   // on #app-root that the CSS uses to show the matching #modal-*-content block.
-  const MODAL_NAMES = ["weather", "tasks", "reminders"];
+  const MODAL_NAMES = ["weather", "tasks", "reminders", "system"];
   window.awaazOpenModal = function (name) {
     const root = document.getElementById("app-root");
     if (!root) return;
@@ -522,7 +864,9 @@ JS = r"""
     // #modal-panel - not a continuation of the checkbox's original (already-stopped) event, so
     // without this it reads as an outside click and closes the modal the instant a task inside
     // it is checked off.
-    const opener = e.target.closest(".card.clickable, #task-toggle-btn");
+    // .notch-tile is excluded for the same reason: it's the quick-view panel's own opener
+    // button for this exact modal, not an outside click.
+    const opener = e.target.closest(".card.clickable, #task-toggle-btn, .notch-tile");
     if (panel && !panel.contains(e.target) && !opener) awaazCloseModal();
   });
   document.addEventListener("keydown", function (e) {
@@ -593,6 +937,21 @@ JS = r"""
   setInterval(syncWeatherChip, 2000);
   document.addEventListener("DOMContentLoaded", syncWeatherChip);
 
+  // ── mirror live task/reminder counts into the quick-view panel's tiles ──
+  // Same plain-poll approach as syncWeatherChip above: these counts are purely cosmetic
+  // (the real numbers live in the dashboard cards), so a couple of seconds' staleness is
+  // irrelevant and this avoids wiring new Gradio outputs just for a second display of them.
+  function syncNotchCounts() {
+    const t = document.querySelector("#tasks-card .count-pill");
+    const r = document.querySelector("#reminders-card .count-pill");
+    const tEl = document.getElementById("notch-tile-tasks-count");
+    const rEl = document.getElementById("notch-tile-reminders-count");
+    if (t && tEl) tEl.textContent = t.textContent.trim();
+    if (r && rEl) rEl.textContent = r.textContent.trim();
+  }
+  setInterval(syncNotchCounts, 2000);
+  document.addEventListener("DOMContentLoaded", syncNotchCounts);
+
   // ── continuous voice session with real barge-in (VAD-driven, not tap-driven) ──
   // Tap once: ONE microphone grant for the whole session. The mic stays live and is continuously
   // analysed for voice activity in every state, including while Awaaz is talking — so starting to
@@ -616,10 +975,14 @@ JS = r"""
     turnTimeoutMs: vadTunable("turn_timeout_ms", 25000), // give up waiting for a reply and resume listening
   };
 
-  const STATE = { IDLE: "idle", LISTENING: "listening", USER_SPEAKING: "user_speaking",
-                 PROCESSING: "processing", ASSISTANT_SPEAKING: "assistant_speaking" };
-  const STATUS_TEXT = { idle: "Tap the mic to start", listening: "Listening…", user_speaking: "Hearing you…",
-                        processing: "Thinking…", assistant_speaking: "Speaking…" };
+  const STATE = { IDLE: "idle", WAKE_LISTENING: "wake_listening", AWAKE: "awake",
+                 LISTENING: "listening", USER_SPEAKING: "user_speaking",
+                 PROCESSING: "processing", ASSISTANT_SPEAKING: "assistant_speaking",
+                 STOPPED: "stopped", ERROR: "error" };
+  const STATUS_TEXT = { idle: "Tap the mic to start", wake_listening: "Listening for Aawaz…",
+                        awake: "Yes?", listening: "Listening…", user_speaking: "Hearing you…",
+                        processing: "Thinking…", assistant_speaking: "Speaking…",
+                        stopped: "Stopped", error: "Something went wrong" };
 
   const SESSION = {
     active: false, state: STATE.IDLE, genId: 0,
@@ -627,6 +990,11 @@ JS = r"""
     rec: null, chunks: [],
     onsetStart: 0, silenceStart: 0, utterStartedAt: 0,
     rafId: null, replyObserver: null, turnTimer: null,
+    // Wake-word listening (separate lifecycle from the VAD command session above; see
+    // startWakeListening()/onWakeWordDetected() further down). wakeMode marks a command session
+    // that was entered via a detected wake word, so it knows to return to wake-listening
+    // afterwards instead of staying hands-free open (see the reply-ended and timeout handlers).
+    wakeActive: false, wakeMode: false, wakeRecognizer: null, wakeErrorCount: 0, wakeRestartTimer: null,
   };
 
   function pickMime() {
@@ -647,14 +1015,18 @@ JS = r"""
       b.classList.toggle("recording", SESSION.state === STATE.USER_SPEAKING);
       b.classList.toggle("speaking", SESSION.state === STATE.ASSISTANT_SPEAKING);
     });
-    const end = document.getElementById("end-conv-btn"); if (end) end.style.display = SESSION.active ? "" : "none";
+    document.querySelectorAll(".dock-btn--wake").forEach(function (b) {
+      b.classList.toggle("wake-on", SESSION.wakeActive);
+    });
+    const end = document.getElementById("end-conv-btn");
+    if (end) end.style.display = (SESSION.active || SESSION.wakeActive) ? "" : "none";
     const orb = document.getElementById("voice-orb");
     if (orb) {
       orb.className = "orb-wrap st-" + SESSION.state;
     }
     const pill = document.getElementById("status-pill");
     if (pill) {
-      pill.classList.toggle("live", SESSION.active && SESSION.state !== STATE.USER_SPEAKING);
+      pill.classList.toggle("live", (SESSION.active || SESSION.wakeActive) && SESSION.state !== STATE.USER_SPEAKING);
       pill.classList.toggle("hearing", SESSION.state === STATE.USER_SPEAKING);
     }
     const root = document.getElementById("app-root"); if (root) root.classList.toggle("voice-session-on", SESSION.active);
@@ -678,10 +1050,12 @@ JS = r"""
   // ── session lifecycle: one mic grant, kept alive for the whole conversation ──
   async function startSession() {
     if (SESSION.active) return;
+    SESSION.wakeMode = false;    // reset here; onWakeWordDetected() sets it back true right after, if that's how we got here
     try {
       SESSION.stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
     } catch (e) {
+      setState(STATE.ERROR);
       setStatus("Microphone blocked — allow microphone access for this site, then try again.");
       return;
     }
@@ -700,6 +1074,7 @@ JS = r"""
   function endSession() {
     if (!SESSION.active) return;
     SESSION.active = false;
+    SESSION.wakeMode = false;
     SESSION.genId++;                                  // invalidate anything still in flight
     if (SESSION.rafId) cancelAnimationFrame(SESSION.rafId);
     clearTurnTimeout();
@@ -713,7 +1088,16 @@ JS = r"""
     stopSpeaking();
     setState(STATE.IDLE);
   }
-  window.awaazEndConversation = endSession;
+
+  // The "✕ End" button / re-tapping the mic while ANY session (full command session or passive
+  // wake-word listening) is running: a full stop of everything, never a return to wake-listening -
+  // that return only happens automatically after a wake-triggered turn finishes (see the reply
+  // "ended" handler and the turn-timeout handler further down).
+  function endEverything() {
+    stopWakeListening();
+    endSession();
+  }
+  window.awaazEndConversation = endEverything;
 
   // Onset must be sustained for VAD.onsetMs before it commits — rejects clicks, pops, brief echo spikes.
   function trackOnset(level, now, threshold, onCommit) {
@@ -801,13 +1185,21 @@ JS = r"""
   function clearTurnTimeout() {
     if (SESSION.turnTimer) { clearTimeout(SESSION.turnTimer); SESSION.turnTimer = null; }
   }
+  // The shared "a turn just finished" transition: a wake-triggered session (SESSION.wakeMode)
+  // goes back to passive wake-word listening - "Idle/listening -> wake word -> ... -> return to
+  // wake-word listening mode", per spec - while a manually tap-started session stays hands-free
+  // open exactly as before (README's documented always-on barge-in behaviour is unchanged for it).
+  function returnToListening() {
+    if (SESSION.wakeMode) { endSession(); startWakeListening(); return; }
+    setState(STATE.LISTENING);
+  }
   // No reply arrived at all within this window (TTS failed, or nothing needed saying) - resume
   // listening anyway rather than waiting forever. Per-turn (myGen-gated) since a newer turn's
   // own timeout, or its reply arriving, should not be cancelled by an older turn's timer.
   function armTurnTimeout(myGen) {
     clearTurnTimeout();
     SESSION.turnTimer = setTimeout(function () {
-      if (SESSION.active && myGen === SESSION.genId && SESSION.state === STATE.PROCESSING) setState(STATE.LISTENING);
+      if (SESSION.active && myGen === SESSION.genId && SESSION.state === STATE.PROCESSING) returnToListening();
     }, VAD.turnTimeoutMs);
   }
 
@@ -853,15 +1245,149 @@ JS = r"""
       a.play().catch(function () {});
       setState(STATE.ASSISTANT_SPEAKING);
       a.addEventListener("ended", function () {
-        if (SESSION.active && SESSION.state === STATE.ASSISTANT_SPEAKING) setState(STATE.LISTENING);
+        if (!SESSION.active || SESSION.state !== STATE.ASSISTANT_SPEAKING) return;
+        returnToListening();
       }, { once: true });
     });
     SESSION.replyObserver.observe(row, { childList: true, subtree: true, attributes: true, attributeFilter: ["src"] });
   }
 
   window.awaazMicTap = function () {
-    if (SESSION.active) { endSession(); return; }
+    if (SESSION.active) { endEverything(); return; }
+    stopWakeListening();   // manually taking over from passive wake-word listening, if it was on
     startSession();
+  };
+
+  // The explicit "⏹ Stop" button: unlike barge-in (which means "I'm about to talk, so stop and
+  // start listening to ME"), pressing Stop just means "stop talking" - it must not start a new
+  // utterance recording. Same instant client-side stopSpeaking() as barge-in uses, so the user
+  // never waits on a server round-trip for audio that's already playing locally to actually stop.
+  // Passes through STATE.STOPPED briefly (per spec) so the UI can show "Stopped" for a beat before
+  // the normal return-to-listening transition (wake-mode aware, same as a completed turn).
+  window.awaazStopSpeaking = function () {
+    stopSpeaking();
+    if (!SESSION.active || SESSION.state !== STATE.ASSISTANT_SPEAKING) return;
+    setState(STATE.STOPPED);
+    setTimeout(function () { if (SESSION.active && SESSION.state === STATE.STOPPED) returnToListening(); }, 450);
+  };
+
+  // ── persistent wake-word listening ──────────────────────────────────────────
+  // A second, deliberately lightweight listening mode, separate from the VAD command session
+  // above: instead of continuously recording and sending audio to Groq Whisper (expensive, and
+  // exactly what the spec says to avoid while idle), it uses the browser's own built-in speech
+  // recognizer (SpeechRecognition) purely to watch for a wake phrase locally. Only once one is
+  // heard does it hand off to the real, full-fidelity command session (startSession()).
+  // Wake phrases come from window.AWAAZ_WAKE_PHRASES (set server-side from .env's WAKE_PHRASES —
+  // see config.py) so adding one is a config change, never a code change.
+  function normalizeForMatch(s) {
+    return (s || "").toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+  }
+  function matchesWakePhrase(transcript) {
+    const norm = normalizeForMatch(transcript);
+    const phrases = (window.AWAAZ_WAKE_PHRASES && window.AWAAZ_WAKE_PHRASES.length)
+      ? window.AWAAZ_WAKE_PHRASES : ["hey aawaz", "aawaz"];
+    return phrases.some(function (p) { return norm.indexOf(normalizeForMatch(p)) !== -1; });
+  }
+  function getRecognitionCtor() { return window.SpeechRecognition || window.webkitSpeechRecognition || null; }
+
+  function startWakeListening() {
+    if (SESSION.active || SESSION.wakeActive) return;      // a real session already owns the mic
+    const Ctor = getRecognitionCtor();
+    if (!Ctor) {
+      setState(STATE.ERROR);
+      setStatus("Wake-word listening isn't supported in this browser — tap the mic instead.");
+      return;
+    }
+    SESSION.wakeActive = true;
+    SESSION.wakeErrorCount = 0;
+    setState(STATE.WAKE_LISTENING);
+    _runWakeRecognizer();
+  }
+
+  function _runWakeRecognizer() {
+    if (!SESSION.wakeActive) return;
+    const Ctor = getRecognitionCtor();
+    const rec = new Ctor();
+    SESSION.wakeRecognizer = rec;
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = "en-US";
+    rec.onresult = function (e) {
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const alt = e.results[i] && e.results[i][0];
+        if (alt && alt.transcript && matchesWakePhrase(alt.transcript)) { onWakeWordDetected(); return; }
+      }
+    };
+    rec.onerror = function (e) {
+      // "no-speech" fires routinely on every silent gap - not a real error, never counted.
+      if (e.error === "no-speech" || e.error === "aborted") return;
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+        SESSION.wakeActive = false;
+        setState(STATE.ERROR);
+        setStatus("Microphone blocked — allow microphone access to use wake-word listening.");
+        return;
+      }
+      SESSION.wakeErrorCount++;
+    };
+    rec.onend = function () {
+      if (!SESSION.wakeActive) return;      // stopped deliberately (toggled off, or wake word matched)
+      if (SESSION.wakeErrorCount > 6) {     // stop retrying forever after repeated real failures
+        SESSION.wakeActive = false;
+        setState(STATE.ERROR);
+        setStatus("Wake-word listening kept failing — tap the mic to talk instead.");
+        return;
+      }
+      // Browsers silently end "continuous" recognition after a while (commonly ~60s of quiet) -
+      // restarting here is what makes wake-word listening actually persistent, not one-shot.
+      const delay = Math.min(4000, 300 * Math.pow(2, SESSION.wakeErrorCount));
+      SESSION.wakeRestartTimer = setTimeout(function () { if (SESSION.wakeActive) _runWakeRecognizer(); }, delay);
+    };
+    try { rec.start(); } catch (e) { SESSION.wakeErrorCount++; rec.onend(); }
+  }
+
+  function stopWakeListening() {
+    if (!SESSION.wakeActive && !SESSION.wakeRecognizer) return;
+    SESSION.wakeActive = false;
+    if (SESSION.wakeRestartTimer) { clearTimeout(SESSION.wakeRestartTimer); SESSION.wakeRestartTimer = null; }
+    if (SESSION.wakeRecognizer) { try { SESSION.wakeRecognizer.stop(); } catch (e) {} SESSION.wakeRecognizer = null; }
+    if (!SESSION.active) setState(STATE.IDLE);
+    refreshUI();
+  }
+
+  // A short two-tone chime — the "activation sound/acknowledgement" — synthesised locally with
+  // the Web Audio API rather than round-tripping a file from the server, so it plays the instant
+  // the wake word is recognised (mirrors services/text_to_speech.py's notification_sound(), which
+  // uses the same two notes for the due-reminder chime, just generated client-side here for speed).
+  function playChime() {
+    try {
+      const ctx = SESSION.ctx || new (window.AudioContext || window.webkitAudioContext)();
+      [[880, 0], [1320, 0.12]].forEach(function (nf) {
+        const osc = ctx.createOscillator(); const gain = ctx.createGain();
+        osc.frequency.value = nf[0]; osc.type = "sine";
+        osc.connect(gain); gain.connect(ctx.destination);
+        const t0 = ctx.currentTime + nf[1];
+        gain.gain.setValueAtTime(0, t0);
+        gain.gain.linearRampToValueAtTime(0.18, t0 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.22);
+        osc.start(t0); osc.stop(t0 + 0.24);
+      });
+    } catch (e) {}
+  }
+
+  async function onWakeWordDetected() {
+    if (!SESSION.wakeActive) return;
+    stopWakeListening();           // release the lightweight recognizer before opening the full mic session
+    setState(STATE.AWAKE);
+    playChime();
+    await new Promise(function (r) { setTimeout(r, 260); });   // let the chime finish before recording starts
+    await startSession();
+    SESSION.wakeMode = true;       // marks this session as wake-triggered (see returnToListening())
+  }
+
+  window.awaazToggleWakeWord = function () {
+    if (SESSION.wakeActive) { stopWakeListening(); return; }
+    if (SESSION.active) return;    // a full session already has the mic; nothing to toggle
+    startWakeListening();
   };
 })();
 """
@@ -881,8 +1407,6 @@ def sidebar_header_html() -> str:
 GEAR_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'
            '<circle cx="12" cy="12" r="3.2"/><path d="M12 3v2.2M12 18.8V21M21 12h-2.2M5.2 12H3M18.4 5.6l-1.5 1.5'
            'M7.1 16.9l-1.5 1.5M18.4 18.4l-1.5-1.5M7.1 7.1 5.6 5.6"/></svg>')
-MENU_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round">'
-           '<path d="M4 7h16M4 12h16M4 17h16"/></svg>')
 CPU_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'
           '<rect x="6" y="6" width="12" height="12" rx="2"/><path stroke-linecap="round" '
           'd="M9 3v2M15 3v2M9 19v2M15 19v2M3 9h2M3 15h2M19 9h2M19 15h2"/></svg>')
@@ -905,11 +1429,34 @@ MIC_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-wi
 KEYBOARD_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'
                '<rect x="2.5" y="6" width="19" height="12" rx="2.4"/>'
                '<path stroke-linecap="round" d="M6 10h.01M9.5 10h.01M13 10h.01M16.5 10h.01M6 14h12"/></svg>')
+EAR_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'
+          '<path stroke-linecap="round" stroke-linejoin="round" d="M8 13a5 5 0 1 1 5 5c-1.5 0-2-1-2-2v-2a2 2 0 0 0-2-2'
+          'M14.5 5.5a7 7 0 0 0-9 9.5c.6 1.4 1 2 1 3.5"/></svg>')
+HOME_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
+           '<path d="M4 11.5 12 4l8 7.5"/><path d="M6 10v9a1 1 0 0 0 1 1h3v-5h4v5h3a1 1 0 0 0 1-1v-9"/></svg>')
+CHAT_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
+           '<path d="M4 5.5h16v10H9l-4 3.5v-3.5H4z"/></svg>')
+PLUS_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round">'
+           '<path d="M12 5v14M5 12h14"/></svg>')
+SPEAKER_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
+              '<path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 9a4 4 0 0 1 0 6M19 6.5a7.5 7.5 0 0 1 0 11"/></svg>')
+MINIMIZE_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">'
+                '<path d="M6 12h12"/></svg>')
 
 def topbar_html() -> str:
+    """Bookended by two rounded-pill icon clusters — Home / Chat / + on the left, Gear / Speaker
+    on the right — each firing a real existing action (never decorative chrome):
+    Home focuses the composer, Chat opens the conversation drawer, + starts a new conversation
+    (forwarded to the real, already-wired #new-chat-btn), Gear opens the same drawer to its
+    settings footer, Speaker stops whatever Awaaz is currently speaking."""
     return f"""
 <div id="topbar">
-  <button id="menu-btn" onclick="awaazToggleSidebar()" title="Conversations">{MENU_SVG}</button>
+  <div class="pill-cluster">
+    <button class="pill-icon" onclick="awaazFocusComposer()" title="Home">{HOME_SVG}</button>
+    <button class="pill-icon sidebar-opener" onclick="awaazToggleSidebar()" title="Conversations">{CHAT_SVG}</button>
+    <button class="pill-icon pill-icon--plus" onclick="document.getElementById('new-chat-btn')?.click()" title="New chat">{PLUS_SVG}</button>
+    <button class="pill-icon" onclick="awaazSetNotch('panel'); requestAnimationFrame(awaazPositionNotchPanel)" title="Minimize">{MINIMIZE_SVG}</button>
+  </div>
   <div class="brand-wrap">
     <span class="brand">AWAAZ</span>
     <span class="status-tag"><span class="dot"></span>Online</span>
@@ -925,26 +1472,92 @@ def topbar_html() -> str:
     <strong class="mono" id="topbar-weather-temp">--°C</strong>
     <span class="city" id="topbar-weather-place">···</span>
   </div>
-  <div class="hud-icon" onclick="awaazToggleSidebar()" title="Settings &amp; conversations">{GEAR_SVG}</div>
+  <div class="pill-cluster">
+    <button class="pill-icon sidebar-opener" onclick="awaazToggleSidebar()" title="Settings &amp; conversations">{GEAR_SVG}</button>
+    <button class="pill-icon" onclick="awaazStopSpeaking()" title="Stop speaking">{SPEAKER_SVG}</button>
+  </div>
 </div>"""
 
 
-def conversation_welcome_html(language: str = "en") -> str:
-    if language == "ne":
-        title, sub = "आवाज सहायक", "नमस्ते! रिमाइन्डर, काम, मौसम वा फुटबल बारे सोध्नुहोस्।"
-    else:
-        title, sub = "Awaaz", "Hi! Ask about reminders, tasks, weather or football."
-    return (f"<div style='text-align:center;opacity:.75;padding-top:8vh'>"
-           f"<div style='font-size:1.8rem'>🗣️</div><div style='font-size:1.05rem;font-weight:700;margin-top:6px;"
-           f"color:var(--accent)'>{html.escape(title)}</div>"
-           f"<div style='font-size:.82rem;margin-top:4px;max-width:280px;margin-inline:auto;color:var(--muted)'>"
-           f"{html.escape(sub)}</div></div>")
+def mascot_html(size: str = "sm") -> str:
+    """A small white blob with two dot eyes that track the cursor (see awaazTrackMascotEyes in
+    theme.JS). size: 'sm' for the collapsed pill, 'lg' for the panel's hero card."""
+    return f'<div class="mascot mascot-{size}"><span class="mascot-eye"></span><span class="mascot-eye"></span></div>'
+
+
+def notch_launcher_html() -> str:
+    """The Coucou-style collapsed state: a small pill, draggable anywhere on screen (see
+    awaazInitNotchDrag in theme.JS), with the mascot plus a purely decorative 2x2 grid of
+    dot-capsules (no icons/labels - those only appear once the panel below is open). A plain
+    click (no real movement) opens notch_panel_html()'s quick view; nothing here is ever rebuilt
+    or refetched, state switches only toggle visibility (see CSS: html[data-notch]). No onclick
+    here - open-vs-drag is decided in JS so a drag never also fires a click."""
+    pips = "".join(
+        f'<span class="notch-pip badge-{color}"><span class="notch-pip-dot"></span><span class="notch-pip-dot"></span></span>'
+        for color in ("green", "amber", "purple", "pink")
+    )
+    return f"""
+<div class="notch-launcher">
+  {mascot_html("sm")}
+  <div class="notch-pips">{pips}</div>
+</div>"""
+
+
+def notch_panel_html() -> str:
+    """The Coucou-style quick view shown right after tapping the pill: a status/launch card next
+    to a grid of Tasks/Reminders/Weather/System, each opening its own modal directly (see
+    awaazOpenModal, already wired elsewhere) without needing to open the chat view at all. The
+    hero card opens the chat view itself (see chat_view_header_html() below) - the single
+    "opened" interface, holding the live conversation and voice controls. Live task/reminder
+    counts are kept in sync with the real (off-screen) data cards by syncNotchCounts() in
+    theme.JS."""
+    tiles = "".join(f"""
+  <button class="notch-tile" onclick="awaazOpenModal('{name}')">
+    <span class="badge badge-{color}">{icon}</span>
+    <span class="notch-tile-label"><span>{label}</span>{f'<small id="notch-tile-{name}-count"></small>' if count_id else ''}</span>
+  </button>""" for name, color, icon, label, count_id in (
+        ("tasks", "green", CHECKLIST_SVG, "Tasks", True),
+        ("reminders", "amber", BELL_SVG, "Reminders", True),
+        ("weather", "sky", CLOUD_SVG, "Weather", False),
+        ("system", "blue", CPU_SVG, "System", False),
+    ))
+    return f"""
+<div class="notch-panel">
+  <button class="notch-hero" onclick="awaazSetNotch('full')">
+    {mascot_html("lg")}
+    <div class="notch-hero-body">
+      <div class="notch-hero-title">Awaaz</div>
+      <div class="notch-hero-status"><span class="dot"></span>Online</div>
+      <div class="notch-hero-cta">Open Awaaz →</div>
+    </div>
+  </button>
+  <div class="notch-grid">{tiles}</div>
+</div>"""
+
+
+def chat_view_header_html() -> str:
+    """Static header shell for #chat-view (see app.py's build_ui): mascot + an ambient glow +
+    title. Placed in the same gr.Row as the real Clear/Extract gr.Button components, which need
+    real click wiring so they're not part of this raw HTML string. Mascot+title are wrapped in
+    their own inline flex row here (not left to the outer Row) because Gradio renders this whole
+    gr.HTML block as a single flex child of that Row - without their own row, they'd stack
+    vertically as plain block content instead of sitting side by side, inflating the header."""
+    return f"""
+<div class="chat-view-glow"></div>
+<div class="chat-view-brand">{mascot_html("md")}<span class="chat-view-title">Awaaz</span></div>"""
+
+
+def conversation_welcome_html() -> str:
+    """Empty on purpose: the chat view's own mascot header already carries the "Awaaz" branding,
+    so an empty conversation just leaves this area blank rather than repeating a welcome message
+    - keeps the card short instead of reserving a tall block of space for it."""
+    return ""
 
 
 def voice_orb_html() -> str:
     """The center hero: a purely client-driven voice-session visual. No Python data — the JS
     state machine (see JS above) drives every dynamic bit of it (orb glow, wave bars, status
-    pill, mic button state) by id/class, so this only needs to render once."""
+    pill, mic/wake button state) by id/class, so this only needs to render once."""
     bars = "".join("<i></i>" for _ in range(5))
     return f"""
 <div class="orb-wrap st-idle" id="voice-orb">
@@ -955,11 +1568,13 @@ def voice_orb_html() -> str:
 <h1 class="brand-title">AWAAZ</h1>
 <div class="status-pill" id="status-pill"><span class="dot"></span><span id="mic-status">Tap the mic to start</span></div>
 <div class="dock">
-  <button class="dock-btn" onclick="awaazFocusComposer()" title="Type instead">{KEYBOARD_SVG}</button>
+  <button class="dock-btn dock-btn--wake" onclick="awaazToggleWakeWord()"
+         title="Toggle passive wake-word listening (say &quot;Hey Aawaz&quot;)">{EAR_SVG}</button>
   <div class="mic-btn-group" style="display:flex;flex-direction:column;align-items:center;gap:8px;">
     <button class="dock-btn dock-btn--mic" onclick="awaazMicTap()" title="Tap to talk hands-free">{MIC_SVG}</button>
     <button id="end-conv-btn" onclick="awaazEndConversation()" title="End the conversation">✕ End</button>
   </div>
+  <button class="dock-btn" onclick="awaazFocusComposer()" title="Type instead">{KEYBOARD_SVG}</button>
   <button class="dock-btn" onclick="awaazToggleSidebar()" title="Conversation history">{CLOCK_SVG}</button>
 </div>"""
 
@@ -967,11 +1582,14 @@ def voice_orb_html() -> str:
 # ── dashboard widgets (pure HTML builders — app.py supplies the data) ───────
 
 def panel(title: str, body_html: str, count: int | str | None = None, icon_svg: str = "",
-         onclick: str = "") -> str:
+         onclick: str = "", badge: str = "blue") -> str:
+    """badge: 'blue' | 'sky' | 'green' | 'amber' | 'purple' — one of the badge-* classes in CSS,
+    so each dashboard card reads as a distinct colour at a glance (see app.py call sites)."""
     n = f'<span class="count-pill">{html.escape(str(count))}</span>' if count is not None else ""
     cls = "card clickable" if onclick else "card"
     click_attr = f' onclick="{html.escape(onclick, quote=True)}"' if onclick else ""
-    return (f'<div class="{cls}"{click_attr}><div class="card-head"><div class="card-title">{icon_svg}'
+    icon = f'<span class="badge badge-{html.escape(badge, quote=True)}">{icon_svg}</span>' if icon_svg else ""
+    return (f'<div class="{cls}"{click_attr}><div class="card-head"><div class="card-title">{icon}'
            f'<span>{html.escape(title)}</span></div>{n}</div>{body_html}</div>')
 
 

@@ -1,0 +1,139 @@
+:root {
+  --bg: #0a0a0d;
+  --panel: #111114;
+  --border: rgba(94, 195, 255, .16);
+  --border-strong: rgba(94, 195, 255, .3);
+  --text: #e9f1fb;
+  --muted: #8a97ad;
+  --faint: #566378;
+  --accent: #4fd1ff;
+  --accent-2: #4b8bff;
+  --accent-soft: rgba(79, 209, 255, .1);
+  --good: #34d399;
+  --warn: #f5c451;
+}
+
+* { box-sizing: border-box; }
+
+/* Without this, #expanded-view's own `display: flex` (an ID selector, specificity 100) beats
+   the browser's default `[hidden] { display: none }` UA rule (specificity 10), so the `hidden`
+   attribute set from renderer.js stops actually hiding it. */
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  overflow: hidden;
+  font-family: -apple-system, 'Inter', ui-sans-serif, sans-serif;
+  color: var(--text);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+#pill {
+  width: 100%;
+  height: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 20px 20px;
+  overflow: hidden;
+  cursor: pointer;
+  box-shadow: 0 14px 34px -14px rgba(0, 0, 0, .7);
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── collapsed: a small pill sitting just under the notch ──────────────── */
+#collapsed-view {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: .78rem;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--good);
+  box-shadow: 0 0 0 0 rgba(52, 211, 153, .6);
+  animation: pulse 2.2s ease-out infinite;
+  flex: none;
+}
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 rgba(52,211,153,.55); }
+  70% { box-shadow: 0 0 0 6px rgba(52,211,153,0); }
+  100% { box-shadow: 0 0 0 0 rgba(52,211,153,0); }
+}
+
+/* ── expanded: Tasks + Reminders lists ───────────────────────────────── */
+#expanded-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 14px 10px;
+  gap: 4px;
+  overflow-y: auto;
+}
+.section-head {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 10px; margin-bottom: 8px;
+}
+.section-head:first-child { margin-top: 0; }
+.section-title { font-size: .76rem; font-weight: 700; letter-spacing: .02em; }
+.badge { width: 16px; height: 16px; border-radius: 50%; flex: none; }
+.badge-green { background: linear-gradient(140deg, #6ee7b7, #34d399); }
+.badge-amber { background: linear-gradient(140deg, #fde68a, #f5c451); }
+.count-pill {
+  margin-left: auto; font-size: .64rem; font-weight: 600; color: var(--muted);
+  background: rgba(255,255,255,.04); border: 1px solid var(--border);
+  padding: 1px 7px; border-radius: 999px;
+}
+
+.list { display: flex; flex-direction: column; gap: 5px; }
+.list-empty { font-size: .72rem; color: var(--faint); font-style: italic; padding: 2px 0 6px; }
+
+.task-item, .reminder-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px; border-radius: 9px;
+  background: rgba(255,255,255,.03);
+  font-size: .74rem;
+}
+.task-item .dot-check {
+  width: 13px; height: 13px; border-radius: 4px; flex: none;
+  border: 1.5px solid var(--faint);
+}
+.task-item.done .dot-check { background: var(--good); border-color: var(--good); }
+.task-item.done .task-title { color: var(--faint); text-decoration: line-through; }
+.task-title, .reminder-title {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text); font-weight: 500;
+}
+.task-tag {
+  flex: none; font-size: .6rem; font-weight: 600; padding: 1px 6px; border-radius: 999px;
+}
+.task-tag.overdue, .task-tag.today { color: var(--warn); background: rgba(245,196,81,.12); }
+.task-tag.later { color: var(--muted); background: rgba(255,255,255,.04); }
+
+.reminder-time {
+  flex: none; font-size: .64rem; font-weight: 700; color: var(--accent);
+  background: var(--accent-soft); border: 1px solid var(--border);
+  border-radius: 7px; padding: 2px 6px; font-variant-numeric: tabular-nums;
+}
+.reminder-item.due .reminder-time { color: var(--warn); background: rgba(245,196,81,.12); }
+
+.empty-state {
+  font-size: .72rem; color: var(--faint); text-align: center; padding: 20px 8px; line-height: 1.5;
+}
+.empty-state code {
+  background: rgba(255,255,255,.06); padding: 1px 5px; border-radius: 5px; font-size: .68rem;
+}
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-thumb { background: rgba(94,195,255,.18); border-radius: 6px; }
+::-webkit-scrollbar-track { background: transparent; }

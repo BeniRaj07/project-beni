@@ -20,7 +20,7 @@ os.environ["DATA_DIR"] = str(_TMP / "unused-data")
 os.environ["APP_TIMEZONE"] = "Asia/Kathmandu"
 
 from database import stores  # noqa: E402
-from services import football, news, weather  # noqa: E402
+from services import football, nepal_news, news, weather  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -32,7 +32,7 @@ def temp_stores(tmp_path):
 
 @pytest.fixture(autouse=True)
 def clear_caches():
-    for c in (weather._cache, football._cache, news._cache):
+    for c in (weather._cache, football._cache, news._cache, nepal_news._cache):
         c.clear()
     football._limiter._calls.clear()
     yield

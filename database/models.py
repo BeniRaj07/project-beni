@@ -121,6 +121,30 @@ class TasksFile(BaseModel):
     series: dict[str, TaskSeries] = Field(default_factory=dict)
 
 
+# ── personal_context.json ───────────────────────────────────────────────────
+
+PersonalCategory = Literal[
+    "profile", "preference", "education", "project", "research", "person", "schedule", "note",
+]
+
+
+class PersonalFact(BaseModel):
+    """One piece of personal information Awaaz has been told to remember. Deliberately flat and
+    free-text (title + content) rather than a rigid per-category schema, so the user can teach
+    Awaaz anything ("remember that...") without the app needing a field for every possible fact."""
+    id: int
+    category: PersonalCategory = "note"
+    title: str            # short label used for matching, e.g. "current project", "manager's name"
+    content: str           # the actual fact, in the user's own words
+    created_at: datetime
+    updated_at: datetime
+
+
+class PersonalContextFile(BaseModel):
+    next_id: int = 1
+    facts: dict[str, PersonalFact] = Field(default_factory=dict)
+
+
 # ── settings.json ────────────────────────────────────────────────────────────
 
 class UserSettings(BaseModel):

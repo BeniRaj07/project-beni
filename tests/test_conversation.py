@@ -78,9 +78,37 @@ def test_task_add_complete_and_list_in_nepali(llm_replies):
     assert "प्रोजेक्ट रिपोर्ट बनाउने" in listing and "✅" in listing
 
 
-def test_out_of_scope_is_refused(llm_replies):
+def test_save_personal_info_then_query_retrieves_it(llm_replies, monkeypatch):
+    llm_replies.append({"intent": "save_personal_info", "title": "current project",
+                        "description": "a bilingual voice assistant called Awaaz"})
+    saved = respond("Remember that my current project is a bilingual voice assistant called Awaaz",
+                    ConversationState(), now=NOW)
+    assert "current project" in saved.text and saved.intent == "save_personal_info"
+
+    llm_replies.append({"intent": "personal_query"})
+    monkeypatch.setattr(handlers, "generate_personal_answer",
+                        lambda q, lang, facts: f"You're working on {facts[0].content}.")
+    reply = respond("What project am I working on?", ConversationState(), now=NOW)
+    assert "bilingual voice assistant called Awaaz" in reply.text
+
+
+def test_personal_query_with_no_saved_facts_is_honest(llm_replies):
+    llm_replies.append({"intent": "personal_query"})
+    reply = respond("What's my email?", ConversationState(), now=NOW)
+    assert "don't have that saved" in reply.text
+
+
+def test_general_ai_answers_broad_questions(llm_replies, monkeypatch):
+    llm_replies.append({"intent": "general_ai", "language": "en"})
+    monkeypatch.setattr(handlers, "generate_general_answer",
+                        lambda text, lang, history: "Roses are red, cats are aloof...")
+    reply = respond("Write me a poem about cats", ConversationState(), now=NOW)
+    assert reply.text == "Roses are red, cats are aloof..." and reply.intent == "general_ai"
+
+
+def test_unclassifiable_message_gets_a_polite_fallback(llm_replies):
     llm_replies.append({"intent": "out_of_scope", "language": "en"})
-    assert "I can only help with" in respond("Write me a poem about cats", ConversationState(), now=NOW).text
+    assert "didn't quite catch" in respond("asdkjhasdkjh", ConversationState(), now=NOW).text
 
 
 def test_llm_outage_gives_friendly_message(monkeypatch):
