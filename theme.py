@@ -152,30 +152,89 @@ h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
 .pill-icon--plus { background: linear-gradient(140deg, var(--accent-2), var(--accent)); color: #06131f !important; }
 .pill-icon--plus:hover { background: linear-gradient(140deg, var(--accent-2), var(--accent)); color: #06131f !important; filter: brightness(1.08); }
 
-/* ── Coucou-style collapse: the app starts as a small pill; #topbar/#dashboard are the
-   exact same, fully-functional UI that already exists elsewhere in this file — collapsing
-   only hides them, it never changes what they do once revealed. Defaults to collapsed (see
-   head()'s html[data-notch] init script), so a first-time visitor sees the small pill first. */
+/* ── Coucou-style 3-state notch: collapsed (small pill) -> panel (quick view) -> full
+   (the exact same, fully-functional #topbar/#dashboard that already exist elsewhere in this
+   file). Switching states never rebuilds or refetches anything, it only shows/hides what's
+   already there. Defaults to collapsed (see head()'s html[data-notch] init script), so a
+   first-time visitor sees the small pill first. This whole subtree (pill + panel) is
+   deliberately theme-independent (hardcoded dark colors, not var(--bg)/var(--text)) so it reads
+   like a fixed black notch island regardless of the app's own light/dark toggle underneath it. */
 html[data-notch="collapsed"] #topbar,
-html[data-notch="collapsed"] #dashboard { display: none !important; }
-/* !important on the override: Gradio auto-prefixes plain class rules with its own
-   `.gradio-container... .contain` scope, which inflates .notch-launcher's specificity past
-   this html[data-notch]-qualified override (whose own auto-prefixed copy can never match,
-   since `html` can never be a descendant of `.contain`) — so without !important here the
-   base `display: none` would win and the pill would never show. */
-.notch-launcher { display: none; }
+html[data-notch="collapsed"] #dashboard,
+html[data-notch="panel"] #dashboard { display: none !important; }
+/* !important on both show-overrides below: Gradio auto-prefixes plain class rules with its own
+   `.gradio-container... .contain` scope, which inflates the base `display: none` rules' real
+   specificity past these html[data-notch]-qualified overrides (whose own auto-prefixed copies
+   can never match, since `html` can never be a descendant of `.contain`) — so without
+   !important here the base rules would win and neither layer would ever show. */
+.notch-launcher, .notch-panel { display: none; }
 html[data-notch="collapsed"] .notch-launcher { display: flex !important; }
+html[data-notch="panel"] .notch-panel { display: flex !important; }
 
+/* ── mascot: a small white blob with two dot eyes that track the cursor (see
+   awaazTrackMascotEyes in theme.JS). Used at both sizes below. ── */
+.mascot { position: relative; flex: none; background: linear-gradient(165deg, #ffffff, #e6e9f0);
+  border-radius: 46% 46% 50% 50% / 60% 60% 40% 40%;
+  box-shadow: inset 0 -3px 5px rgba(0,0,0,.1), 0 2px 8px rgba(0,0,0,.3);
+  animation: mascot-bob 3.4s ease-in-out infinite; }
+@keyframes mascot-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+.mascot-sm { width: 30px; height: 26px; }
+.mascot-lg { width: 60px; height: 52px; }
+.mascot-eye { position: absolute; top: 48%; border-radius: 50%; background: #1b1d24;
+  transform: translate(-50%, -50%); transition: transform .06s ease-out; }
+.mascot-sm .mascot-eye { width: 4px; height: 4px; }
+.mascot-lg .mascot-eye { width: 7px; height: 7px; }
+.mascot .mascot-eye:nth-child(1) { left: 38%; }
+.mascot .mascot-eye:nth-child(2) { left: 62%; }
+
+/* ── collapsed: mascot + a 2x2 grid of the same feature colors used on the full dashboard
+   cards (see panel() below), just icon-only and compact. ── */
 .notch-launcher { position: fixed; z-index: 40; top: 0; left: 50%; transform: translateX(-50%);
-  align-items: center; justify-content: center; gap: 9px; height: 34px; padding: 0 18px;
-  min-width: 220px; border-radius: 0 0 20px 20px; cursor: pointer;
-  background: var(--bg); border: 1px solid var(--border); border-top: none;
-  box-shadow: 0 14px 34px -16px rgba(0,0,0,.7); font-size: .78rem; font-weight: 600;
-  color: var(--muted) !important; white-space: nowrap; transition: border-color .15s ease; }
-.notch-launcher:hover { border-color: var(--border-strong); color: var(--text) !important; }
-.notch-launcher .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); flex: none;
+  align-items: center; justify-content: center; gap: 14px; height: 56px; padding: 0 20px 4px;
+  min-width: 190px; border-radius: 0 0 24px 24px; cursor: pointer;
+  background: #0a0a0d; border: 1px solid rgba(94,195,255,.16); border-top: none;
+  box-shadow: 0 14px 34px -16px rgba(0,0,0,.7);
+  transition: border-color .15s ease, transform .15s ease; }
+.notch-launcher:hover { border-color: rgba(94,195,255,.32); transform: translateX(-50%) scale(1.03); }
+.notch-pips { display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px; }
+.notch-pip { width: 19px; height: 19px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+.notch-pip svg { width: 10px; height: 10px; color: #06131f !important; }
+
+/* ── panel: the compact quick view shown after tapping the pill — a status/launch card next to
+   a grid of the live feature cards, reached one tap earlier than the full dashboard. ── */
+.notch-panel { position: fixed; z-index: 35; top: 54px; left: 50%; transform: translateX(-50%);
+  width: min(560px, calc(100vw - 32px)); gap: 12px; padding: 14px;
+  background: #0a0a0d; border: 1px solid rgba(94,195,255,.16); border-radius: 22px;
+  box-shadow: 0 24px 60px -20px rgba(0,0,0,.65); animation: notch-panel-in .18s ease-out; }
+@keyframes notch-panel-in { from { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+
+.notch-hero { flex: 1; display: flex; align-items: center; gap: 12px; padding: 14px;
+  border-radius: 16px; background: #14161d; border: 1px solid rgba(94,195,255,.14);
+  cursor: pointer; text-align: left; font: inherit; color: inherit;
+  transition: border-color .15s ease, transform .1s ease; }
+.notch-hero:hover { border-color: rgba(94,195,255,.32); transform: translateY(-1px); }
+.notch-hero-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.notch-hero-title { font-weight: 700; font-size: .92rem; color: #e9f1fb; }
+.notch-hero-status { display: flex; align-items: center; gap: 6px; font-size: .72rem; color: #8a97ad; }
+.notch-hero-status .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--good); flex: none;
   animation: pulse-dot 2.2s ease-out infinite; }
-.notch-launcher .notch-summary { font-family: 'JetBrains Mono', monospace; }
+.notch-hero-cta { margin-top: 2px; font-size: .72rem; font-weight: 600; color: #4fd1ff; }
+
+.notch-grid { flex: 1; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.notch-tile { display: flex; align-items: center; gap: 8px; padding: 9px 11px; border-radius: 14px;
+  background: #14161d; border: 1px solid rgba(94,195,255,.14); cursor: pointer; font: inherit;
+  color: #e9f1fb; transition: border-color .15s ease, transform .1s ease; }
+.notch-tile:hover { border-color: rgba(94,195,255,.32); transform: translateY(-1px); }
+.notch-tile .badge { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+.notch-tile .badge svg { width: 12px; height: 12px; color: #06131f !important; }
+.notch-tile-label { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; min-width: 0; }
+.notch-tile-label span { font-size: .78rem; font-weight: 600; }
+.notch-tile-label small { font-size: .62rem; font-weight: 600; color: #6f7c92; font-family: 'JetBrains Mono', monospace; }
+
+@media (max-width: 560px) {
+  .notch-panel { flex-direction: column; }
+}
 
 /* ── dashboard grid: left cards | center orb | right conversation ───────── */
 #dashboard { position: relative; z-index: 1; flex: 1 1 auto; min-height: 0; display: grid;
@@ -540,15 +599,51 @@ JS = r"""
     try { localStorage.setItem("awaaz-theme", next); } catch (e) {}
   };
 
-  // ── Coucou-style collapse: the whole app starts as a small pill; this reveals the
-  // existing, fully-functional dashboard underneath unchanged — it never rebuilds any
-  // feature, it only shows/hides what's already there (see CSS: html[data-notch="collapsed"]). ──
-  window.awaazToggleNotch = function () {
-    const html = document.documentElement;
-    const next = html.dataset.notch === "collapsed" ? "expanded" : "collapsed";
-    html.dataset.notch = next;
-    try { localStorage.setItem("awaaz-notch", next); } catch (e) {}
+  // ── Coucou-style 3-state notch: collapsed (small pill) -> panel (quick view) -> full
+  // (the existing, fully-functional dashboard). Switching states never rebuilds or refetches
+  // anything — #topbar/#dashboard are the same DOM nodes throughout, this only toggles which
+  // layer is visible (see CSS: html[data-notch]). ──
+  window.awaazSetNotch = function (state) {
+    document.documentElement.dataset.notch = state;
+    try { localStorage.setItem("awaaz-notch", state); } catch (e) {}
   };
+  // Tapping outside the open quick-view panel collapses it back to the pill, same pattern as
+  // the sidebar's own outside-click-to-close below.
+  document.addEventListener("click", function (e) {
+    if (document.documentElement.dataset.notch !== "panel") return;
+    const panel = document.querySelector(".notch-panel");
+    // #topbar is excluded because it's visible during "panel" too and manages notch state
+    // itself (e.g. the minimize button) - without this, any topbar click would immediately
+    // re-collapse the panel it had just switched to, on the very same bubbling click event.
+    const opener = e.target.closest(".notch-launcher, #topbar");
+    if (panel && !panel.contains(e.target) && !opener) awaazSetNotch("collapsed");
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape" || document.documentElement.dataset.notch !== "panel") return;
+    // Defer to an open modal's own Escape handler first (closing the modal should never also
+    // collapse the panel underneath it) - a second Escape press then collapses the panel.
+    if (document.getElementById("app-root")?.classList.contains("modal-open")) return;
+    awaazSetNotch("collapsed");
+  });
+
+  // ── mascot eyes track the cursor, Coucou-style ──
+  // Cheap: on each mousemove, point every .mascot's eyes toward the cursor, clamped to a tiny
+  // radius so it reads as a glance. Works for every mascot instance (pill + panel hero) at once.
+  (function () {
+    const RADIUS = 2.4;
+    document.addEventListener("mousemove", function (e) {
+      document.querySelectorAll(".mascot").forEach(function (m) {
+        const r = m.getBoundingClientRect();
+        if (!r.width) return;
+        const dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+        const dist = Math.hypot(dx, dy) || 1;
+        const ex = (dx / dist) * RADIUS, ey = (dy / dist) * RADIUS;
+        m.querySelectorAll(".mascot-eye").forEach(function (eye) {
+          eye.style.transform = "translate(calc(-50% + " + ex + "px), calc(-50% + " + ey + "px))";
+        });
+      });
+    });
+  })();
 
   // ── off-canvas conversation drawer ──
   window.awaazToggleSidebar = function () {
@@ -595,7 +690,9 @@ JS = r"""
     // #modal-panel - not a continuation of the checkbox's original (already-stopped) event, so
     // without this it reads as an outside click and closes the modal the instant a task inside
     // it is checked off.
-    const opener = e.target.closest(".card.clickable, #task-toggle-btn");
+    // .notch-tile is excluded for the same reason: it's the quick-view panel's own opener
+    // button for this exact modal, not an outside click.
+    const opener = e.target.closest(".card.clickable, #task-toggle-btn, .notch-tile");
     if (panel && !panel.contains(e.target) && !opener) awaazCloseModal();
   });
   document.addEventListener("keydown", function (e) {
@@ -666,21 +763,20 @@ JS = r"""
   setInterval(syncWeatherChip, 2000);
   document.addEventListener("DOMContentLoaded", syncWeatherChip);
 
-  // ── mirror live task/reminder counts into the collapsed notch-launcher pill ──
-  // Same plain-poll approach as syncWeatherChip above: the notch pill is purely cosmetic, so a
-  // couple of seconds' staleness is irrelevant and this avoids wiring new Gradio outputs.
-  function syncNotchSummary() {
-    const el = document.getElementById("notch-summary");
-    if (!el) return;
-    const tasksCount = document.querySelector("#tasks-card .count-pill");
-    const remCount = document.querySelector("#reminders-card .count-pill");
-    const parts = [];
-    if (tasksCount && tasksCount.textContent.trim()) parts.push(tasksCount.textContent.trim() + " tasks");
-    if (remCount && remCount.textContent.trim()) parts.push(remCount.textContent.trim() + " reminders");
-    el.textContent = parts.length ? parts.join(" · ") : "AWAAZ";
+  // ── mirror live task/reminder counts into the quick-view panel's tiles ──
+  // Same plain-poll approach as syncWeatherChip above: these counts are purely cosmetic
+  // (the real numbers live in the dashboard cards), so a couple of seconds' staleness is
+  // irrelevant and this avoids wiring new Gradio outputs just for a second display of them.
+  function syncNotchCounts() {
+    const t = document.querySelector("#tasks-card .count-pill");
+    const r = document.querySelector("#reminders-card .count-pill");
+    const tEl = document.getElementById("notch-tile-tasks-count");
+    const rEl = document.getElementById("notch-tile-reminders-count");
+    if (t && tEl) tEl.textContent = t.textContent.trim();
+    if (r && rEl) rEl.textContent = r.textContent.trim();
   }
-  setInterval(syncNotchSummary, 2000);
-  document.addEventListener("DOMContentLoaded", syncNotchSummary);
+  setInterval(syncNotchCounts, 2000);
+  document.addEventListener("DOMContentLoaded", syncNotchCounts);
 
   // ── continuous voice session with real barge-in (VAD-driven, not tap-driven) ──
   // Tap once: ONE microphone grant for the whole session. The mic stays live and is continuously
@@ -1185,7 +1281,7 @@ def topbar_html() -> str:
     <button class="pill-icon" onclick="awaazFocusComposer()" title="Home">{HOME_SVG}</button>
     <button class="pill-icon sidebar-opener" onclick="awaazToggleSidebar()" title="Conversations">{CHAT_SVG}</button>
     <button class="pill-icon pill-icon--plus" onclick="document.getElementById('new-chat-btn')?.click()" title="New chat">{PLUS_SVG}</button>
-    <button class="pill-icon" onclick="awaazToggleNotch()" title="Minimize">{MINIMIZE_SVG}</button>
+    <button class="pill-icon" onclick="awaazSetNotch('panel')" title="Minimize">{MINIMIZE_SVG}</button>
   </div>
   <div class="brand-wrap">
     <span class="brand">AWAAZ</span>
@@ -1209,15 +1305,59 @@ def topbar_html() -> str:
 </div>"""
 
 
+def mascot_html(size: str = "sm") -> str:
+    """A small white blob with two dot eyes that track the cursor (see awaazTrackMascotEyes in
+    theme.JS). size: 'sm' for the collapsed pill, 'lg' for the panel's hero card."""
+    return f'<div class="mascot mascot-{size}"><span class="mascot-eye"></span><span class="mascot-eye"></span></div>'
+
+
 def notch_launcher_html() -> str:
-    """The Coucou-style collapsed state: a small pill docked at the top of the page. Clicking it
-    reveals the exact same #topbar/#dashboard that already exist below it in the DOM — collapsing
-    never rebuilds or re-fetches anything, it only toggles visibility (see CSS:
-    html[data-notch="collapsed"]). #notch-summary is kept live by syncNotchSummary() in theme.JS."""
-    return """
-<div class="notch-launcher" onclick="awaazToggleNotch()">
-  <span class="dot"></span>
-  <span class="notch-summary" id="notch-summary">AWAAZ</span>
+    """The Coucou-style collapsed state: a small pill docked at the top of the page — the mascot
+    plus the same four feature colors used on the full dashboard cards (see panel() below),
+    icon-only. Clicking it opens notch_panel_html()'s quick view; nothing here is rebuilt or
+    refetched, state switches only toggle visibility (see CSS: html[data-notch])."""
+    pips = "".join(
+        f'<span class="notch-pip badge-{color}">{icon}</span>'
+        for color, icon in (("green", CHECKLIST_SVG), ("amber", BELL_SVG), ("sky", CLOUD_SVG), ("blue", CPU_SVG))
+    )
+    return f"""
+<div class="notch-launcher" onclick="awaazSetNotch('panel')">
+  {mascot_html("sm")}
+  <div class="notch-pips">{pips}</div>
+</div>"""
+
+
+def notch_panel_html() -> str:
+    """The Coucou-style quick view shown right after tapping the pill: a status/launch card next
+    to a grid of the same Tasks/Reminders/Weather/System features as the full dashboard — Tasks/
+    Reminders/Weather open their existing modals directly (see awaazOpenModal, already wired
+    elsewhere), System opens the full app since its detail only lives there. Live task/reminder
+    counts are kept in sync with the real dashboard cards by syncNotchCounts() in theme.JS."""
+    tiles = "".join(f"""
+  <button class="notch-tile" onclick="awaazOpenModal('{name}')">
+    <span class="badge badge-{color}">{icon}</span>
+    <span class="notch-tile-label"><span>{label}</span>{f'<small id="notch-tile-{name}-count"></small>' if count_id else ''}</span>
+  </button>""" for name, color, icon, label, count_id in (
+        ("tasks", "green", CHECKLIST_SVG, "Tasks", True),
+        ("reminders", "amber", BELL_SVG, "Reminders", True),
+        ("weather", "sky", CLOUD_SVG, "Weather", False),
+    ))
+    tiles += f"""
+  <button class="notch-tile" onclick="awaazSetNotch('full')">
+    <span class="badge badge-blue">{CPU_SVG}</span>
+    <span class="notch-tile-label"><span>System</span></span>
+  </button>"""
+    return f"""
+<div class="notch-panel">
+  <button class="notch-hero" onclick="awaazSetNotch('full')">
+    {mascot_html("lg")}
+    <div class="notch-hero-body">
+      <div class="notch-hero-title">Awaaz</div>
+      <div class="notch-hero-status"><span class="dot"></span>Online</div>
+      <div class="notch-hero-cta">Open Awaaz →</div>
+    </div>
+  </button>
+  <div class="notch-grid">{tiles}</div>
 </div>"""
 
 

@@ -429,6 +429,7 @@ def build_ui() -> gr.Blocks:
         with gr.Column(elem_id="app-root"):
             gr.HTML(theme.topbar_html())
             gr.HTML(theme.notch_launcher_html())
+            gr.HTML(theme.notch_panel_html())
 
             # off-canvas conversation drawer (opened by the ☰ / ⚙ buttons in the top bar)
             gr.HTML('<div id="scrim" onclick="awaazToggleSidebar()"></div>')
