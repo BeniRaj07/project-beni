@@ -152,24 +152,27 @@ h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
 .pill-icon--plus { background: linear-gradient(140deg, var(--accent-2), var(--accent)); color: #06131f !important; }
 .pill-icon--plus:hover { background: linear-gradient(140deg, var(--accent-2), var(--accent)); color: #06131f !important; filter: brightness(1.08); }
 
-/* ── Coucou-style 3-state notch: collapsed (small pill) -> panel (quick view) -> full
-   (the exact same, fully-functional #topbar/#dashboard that already exist elsewhere in this
-   file). Switching states never rebuilds or refetches anything, it only shows/hides what's
-   already there. Defaults to collapsed (see head()'s html[data-notch] init script), so a
-   first-time visitor sees the small pill first. This whole subtree (pill + panel) is
-   deliberately theme-independent (hardcoded dark colors, not var(--bg)/var(--text)) so it reads
-   like a fixed black notch island regardless of the app's own light/dark toggle underneath it. */
-html[data-notch="collapsed"] #topbar,
+/* ── Coucou-style 4-state notch: collapsed (small pill) -> panel (quick view) -> full (a new
+   minimal mascot + "Ask me anything" chat view) -> dashboard (the exact same, fully-functional
+   #topbar/#dashboard that already existed here before). Switching states never rebuilds or
+   refetches anything, it only shows/hides what's already there. Defaults to collapsed (see
+   head()'s html[data-notch] init script), so a first-time visitor sees the small pill first.
+   The pill/panel/chat-view subtree is deliberately theme-independent (hardcoded dark colors, not
+   var(--bg)/var(--text)) so it reads like a fixed black notch island regardless of the app's own
+   light/dark toggle underneath it. */
+html[data-notch="collapsed"] #topbar { display: none !important; }
 html[data-notch="collapsed"] #dashboard,
-html[data-notch="panel"] #dashboard { display: none !important; }
-/* !important on both show-overrides below: Gradio auto-prefixes plain class rules with its own
+html[data-notch="panel"] #dashboard,
+html[data-notch="full"] #dashboard { display: none !important; }
+/* !important on all show-overrides below: Gradio auto-prefixes plain class rules with its own
    `.gradio-container... .contain` scope, which inflates the base `display: none` rules' real
    specificity past these html[data-notch]-qualified overrides (whose own auto-prefixed copies
    can never match, since `html` can never be a descendant of `.contain`) — so without
    !important here the base rules would win and neither layer would ever show. */
-.notch-launcher, .notch-panel { display: none; }
+.notch-launcher, .notch-panel, #chat-view { display: none; }
 html[data-notch="collapsed"] .notch-launcher { display: flex !important; }
 html[data-notch="panel"] .notch-panel { display: flex !important; }
+html[data-notch="full"] #chat-view { display: flex !important; }
 
 /* ── mascot: a small white blob with two dot eyes that track the cursor (see
    awaazTrackMascotEyes in theme.JS). Used at both sizes below. ── */
@@ -180,10 +183,12 @@ html[data-notch="panel"] .notch-panel { display: flex !important; }
 @keyframes mascot-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
 .mascot-sm { width: 30px; height: 26px; }
 .mascot-lg { width: 60px; height: 52px; }
+.mascot-xl { width: 92px; height: 80px; }
 .mascot-eye { position: absolute; top: 48%; border-radius: 50%; background: #1b1d24;
   transform: translate(-50%, -50%); transition: transform .06s ease-out; }
 .mascot-sm .mascot-eye { width: 4px; height: 4px; }
 .mascot-lg .mascot-eye { width: 7px; height: 7px; }
+.mascot-xl .mascot-eye { width: 10px; height: 10px; }
 .mascot .mascot-eye:nth-child(1) { left: 38%; }
 .mascot .mascot-eye:nth-child(2) { left: 62%; }
 
@@ -239,6 +244,43 @@ html[data-notch="panel"] .notch-panel { display: flex !important; }
 
 @media (max-width: 560px) {
   .notch-panel { flex-direction: column; }
+}
+
+/* ── full: the minimal chat view "Open Awaaz" opens into — a floating rounded card below
+   #topbar (unchanged) with the mascot and a single "Ask me anything" input. Purely a launcher:
+   submitting it forwards into the real composer and switches to "dashboard" (see
+   awaazSendFromMini in theme.JS) rather than running its own chat pipeline. The grid icon in the
+   corner reaches that full dashboard directly for Tasks/Reminders/Weather/System detail this
+   view doesn't show. ── */
+#chat-view { position: fixed; z-index: 30; top: 70px; left: 50%; transform: translateX(-50%);
+  width: min(620px, calc(100vw - 32px)); height: min(420px, calc(100vh - 110px));
+  flex-direction: column; align-items: center; justify-content: center; gap: 22px;
+  background: #0a0a0d; border: 1px solid rgba(94,195,255,.14); border-radius: 26px;
+  box-shadow: 0 30px 70px -24px rgba(0,0,0,.65); overflow: hidden;
+  animation: notch-panel-in .18s ease-out; }
+.chat-view-glow { position: absolute; top: 20%; left: 50%; width: 70%; aspect-ratio: 1;
+  transform: translateX(-50%); border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, rgba(79,139,255,.22), rgba(79,139,255,0) 70%); }
+.chat-view-dash-btn { position: absolute; top: 14px; right: 14px; width: 30px; height: 30px;
+  display: grid; place-items: center; border-radius: 50%; background: rgba(255,255,255,.04);
+  border: 1px solid rgba(94,195,255,.14); color: #8a97ad; cursor: pointer;
+  transition: border-color .15s ease, color .15s ease; }
+.chat-view-dash-btn:hover { border-color: rgba(94,195,255,.32); color: #e9f1fb; }
+.chat-view-dash-btn svg { width: 15px; height: 15px; }
+.chat-ask-bar { position: relative; z-index: 1; display: flex; align-items: center; gap: 10px;
+  width: min(420px, 86%); padding: 6px 6px 6px 18px; border-radius: 999px;
+  background: rgba(255,255,255,.05); border: 1px solid rgba(94,195,255,.18); }
+#mini-ask-input { flex: 1; min-width: 0; background: transparent; border: none; outline: none;
+  font: inherit; font-size: .88rem; color: #e9f1fb; }
+#mini-ask-input::placeholder { color: #6f7c92; }
+.chat-ask-send { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid;
+  place-items: center; background: #f4f6fa; color: #0a0a0d; border: none; cursor: pointer;
+  transition: transform .1s ease; }
+.chat-ask-send:hover { transform: scale(1.06); }
+.chat-ask-send svg { width: 16px; height: 16px; }
+
+@media (max-width: 480px) {
+  #chat-view { width: calc(100vw - 24px); }
 }
 
 /* ── dashboard grid: left cards | center orb | right conversation ───────── */
@@ -662,6 +704,10 @@ JS = r"""
   // which point CSS has already hidden .notch-launcher (display: none), so getBoundingClientRect
   // on it would read all zeros. Its inline left/top (set by the drag/restore code below) stay
   // readable regardless of visibility, so those are the source of truth here instead.
+  // window.-qualified (not a plain function declaration): this whole JS blob is wrapped in one
+  // top-level IIFE (see the very first line of this file), so a plain declaration would only be
+  // visible inside that closure - invisible to the inline onclick="...requestAnimationFrame(
+  // awaazPositionNotchPanel)" on the minimize button below, which runs in global scope.
   function awaazPillAnchor() {
     const pill = document.querySelector(".notch-launcher");
     if (!pill) return null;
@@ -672,7 +718,7 @@ JS = r"""
     // Never dragged yet: mirror the CSS default (top: 0, horizontally centered).
     return { left: window.innerWidth / 2 - w / 2, top: 0, width: w, height: h };
   }
-  function awaazPositionNotchPanel() {
+  window.awaazPositionNotchPanel = function () {
     const panel = document.querySelector(".notch-panel");
     const anchor = awaazPillAnchor();
     if (!panel || !anchor) return;
@@ -683,7 +729,7 @@ JS = r"""
     panel.style.left = x + "px";
     panel.style.top = y + "px";
     panel.style.transform = "none";
-  }
+  };
   (function () {
     const POS_KEY = "awaaz-notch-pos";
     function clamp(pill, x, y) {
@@ -763,6 +809,22 @@ JS = r"""
   window.awaazFocusComposer = function () {
     const el = document.querySelector("#composer-input textarea, #composer-input input");
     if (el) el.focus();
+  };
+
+  // ── minimal chat view's "Ask me anything" input: a pure launcher, not a second chat pipeline.
+  // It forwards the typed text into the real composer and clicks the real send button, so
+  // text_turn (the actual backend handler, already wired to #send-btn) runs completely
+  // unchanged - then switches to the dashboard so its reply is visible in the real chatbot. ──
+  window.awaazSendFromMini = function () {
+    const mini = document.getElementById("mini-ask-input");
+    const real = document.querySelector("#composer-input textarea, #composer-input input");
+    if (!mini || !real || !mini.value.trim()) return;
+    const text = mini.value;
+    mini.value = "";
+    real.value = text;
+    real.dispatchEvent(new Event("input", { bubbles: true }));
+    awaazSetNotch("dashboard");
+    setTimeout(function () { document.getElementById("send-btn")?.click(); }, 80);
   };
 
   // ── card detail modals (Weather / Tasks / Reminders) ──
@@ -1369,6 +1431,11 @@ SPEAKER_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strok
               '<path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 9a4 4 0 0 1 0 6M19 6.5a7.5 7.5 0 0 1 0 11"/></svg>')
 MINIMIZE_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">'
                 '<path d="M6 12h12"/></svg>')
+ARROW_UP_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">'
+               '<path d="M12 19V5M6 11l6-6 6 6"/></svg>')
+GRID_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
+           '<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/>'
+           '<rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg>')
 
 def topbar_html() -> str:
     """Bookended by two rounded-pill icon clusters — Home / Chat / + on the left, Gear / Speaker
@@ -1434,7 +1501,8 @@ def notch_panel_html() -> str:
     """The Coucou-style quick view shown right after tapping the pill: a status/launch card next
     to a grid of the same Tasks/Reminders/Weather/System features as the full dashboard — Tasks/
     Reminders/Weather open their existing modals directly (see awaazOpenModal, already wired
-    elsewhere), System opens the full app since its detail only lives there. Live task/reminder
+    elsewhere), System opens the full dashboard since its detail only lives there (the hero card
+    opens the new minimal chat view instead - see chat_view_html() below). Live task/reminder
     counts are kept in sync with the real dashboard cards by syncNotchCounts() in theme.JS."""
     tiles = "".join(f"""
   <button class="notch-tile" onclick="awaazOpenModal('{name}')">
@@ -1446,7 +1514,7 @@ def notch_panel_html() -> str:
         ("weather", "sky", CLOUD_SVG, "Weather", False),
     ))
     tiles += f"""
-  <button class="notch-tile" onclick="awaazSetNotch('full')">
+  <button class="notch-tile" onclick="awaazSetNotch('dashboard')">
     <span class="badge badge-blue">{CPU_SVG}</span>
     <span class="notch-tile-label"><span>System</span></span>
   </button>"""
@@ -1461,6 +1529,26 @@ def notch_panel_html() -> str:
     </div>
   </button>
   <div class="notch-grid">{tiles}</div>
+</div>"""
+
+
+def chat_view_html() -> str:
+    """The minimal chat view 'Open Awaaz' now opens into: a floating rounded card (below the
+    existing #topbar, unchanged) with the mascot and a single 'Ask me anything' input. Submitting
+    it (awaazSendFromMini in theme.JS) forwards the text into the real composer and switches to
+    the full dashboard so Awaaz's actual response pipeline runs unchanged - this view has no chat
+    pipeline of its own, it's purely a launcher. The grid icon opens that full dashboard directly,
+    for Tasks/Reminders/Weather/System detail this view doesn't show."""
+    return f"""
+<div id="chat-view">
+  <button class="chat-view-dash-btn" onclick="awaazSetNotch('dashboard')" title="Full dashboard">{GRID_SVG}</button>
+  <div class="chat-view-glow"></div>
+  {mascot_html("xl")}
+  <div class="chat-ask-bar">
+    <input id="mini-ask-input" type="text" placeholder="Ask me anything…" autocomplete="off"
+          onkeydown="if(event.key==='Enter'){{event.preventDefault();awaazSendFromMini();}}" />
+    <button class="chat-ask-send" onclick="awaazSendFromMini()" title="Send">{ARROW_UP_SVG}</button>
+  </div>
 </div>"""
 
 
