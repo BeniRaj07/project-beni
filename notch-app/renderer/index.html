@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline';" />
+<link rel="stylesheet" href="style.css" />
+<title>Awaaz Notch</title>
+</head>
+<body>
+  <div id="pill" class="collapsed">
+    <div id="collapsed-view">
+      <span class="dot"></span>
+      <span id="collapsed-summary">Awaaz</span>
+    </div>
+
+    <div id="expanded-view" hidden>
+      <div class="section-head">
+        <span class="badge badge-green"></span>
+        <span class="section-title">Tasks</span>
+        <span id="tasks-count" class="count-pill"></span>
+      </div>
+      <div id="tasks-list" class="list"></div>
+
+      <div class="section-head">
+        <span class="badge badge-amber"></span>
+        <span class="section-title">Reminders</span>
+      </div>
+      <div id="reminders-list" class="list"></div>
+
+      <div id="empty-state" class="empty-state" hidden>
+        Can't find Awaaz's data folder yet.<br />Run Awaaz at least once, or check
+        <code>AWAAZ_DATA_DIR</code>.
+      </div>
+    </div>
+  </div>
+  <script src="renderer.js"></script>
+</body>
+</html>
