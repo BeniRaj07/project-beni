@@ -107,7 +107,10 @@ footer { display: none !important; }
 h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
 
 /* ── top bar ──────────────────────────────────────────── */
-#topbar { position: relative; z-index: 3; display: flex; align-items: center; gap: 14px;
+/* z-index:55 (above #sidebar's 50 and #scrim's 45, below the modals' 90+): the sidebar spans
+   top:0 to bottom:0, so without this it would cover the topbar's own Home/Chat icons whenever
+   open - including the Chat icon that's supposed to close it again. */
+#topbar { position: relative; z-index: 55; display: flex; align-items: center; gap: 14px;
   padding: 10px 18px; border-bottom: 1px solid var(--border);
   background: linear-gradient(180deg, var(--panel-2), var(--panel)) !important; flex-wrap: wrap; }
 #topbar .brand-wrap { display: flex; align-items: center; gap: 10px; }
@@ -148,6 +151,10 @@ h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
   transition: color .15s ease, background .15s ease, transform .1s ease; }
 .pill-icon:hover { color: var(--accent) !important; background: var(--accent-soft); }
 .pill-icon:active { transform: scale(.92); }
+/* Home/Chat act as a 2-way tab indicator (see awaazSyncTopbarActive in theme.JS): whichever one
+   names what's currently showing (the chat view, or the conversation-history drawer) gets this
+   highlight, the same way a segmented control marks its selected tab. */
+.pill-icon.active { background: rgba(255,255,255,.1); color: var(--text) !important; }
 .pill-icon svg { width: 16px; height: 16px; }
 .pill-icon--plus { background: linear-gradient(140deg, var(--accent-2), var(--accent)); color: #06131f !important; }
 .pill-icon--plus:hover { background: linear-gradient(140deg, var(--accent-2), var(--accent)); color: #06131f !important; filter: brightness(1.08); }
@@ -275,23 +282,28 @@ html[data-notch="full"] #chat-view { display: flex !important; }
 #chat-view #chatbot { padding: 0 6px; }
 #chat-view #status-line { padding: 0 21px; }
 
-/* compact voice controls: the exact same orb/status-pill/dock markup from the old dashboard
-   hero, just sized down to fit a row here instead of a full-screen centerpiece. */
-#voice-orb-wrap { flex: none; display: flex !important; align-items: center; justify-content: center;
-  gap: 10px; flex-wrap: wrap; padding: 6px 16px; }
-#voice-orb-wrap .brand-title { display: none; }
-#voice-orb-wrap .orb-wrap { width: 46px; height: 46px; }
-#voice-orb-wrap .ring-1, #voice-orb-wrap .ring-2 { display: none; }
-#voice-orb-wrap .orb-core { width: 46px; height: 46px; }
-#voice-orb-wrap .wave-bars { height: 12px; }
-#voice-orb-wrap .status-pill { font-size: .72rem; padding: 4px 11px; }
-#voice-orb-wrap .dock { gap: 8px; }
-#voice-orb-wrap .dock-btn { width: 32px; height: 32px; }
-#voice-orb-wrap .dock-btn svg { width: 14px; height: 14px; flex: none; }
-#voice-orb-wrap .dock-btn--mic { width: 40px; height: 40px; }
+/* ── the mic sits right beside the composer, in the same row, instead of its own section above
+   it. It's still the exact same tap-to-talk voice session (orb/wake-word/barge-in all unchanged
+   JS) - only the big ring/core/wave-bars visualisation and the now-redundant keyboard/history
+   dock buttons (the composer is always visible right here; conversation history already has its
+   own topbar icon) are hidden. The mic button's own state styling (.recording/.speaking/.conv-on,
+   all pre-existing) is what shows session state now, instead of the separate status pill. ── */
+#chat-input-row { display: flex !important; align-items: center; gap: 8px; padding: 8px 16px 16px; }
+/* width:auto !important is required: Gradio's own .block wrapper class (applied to every
+   gr.HTML component, including this one) sets width:100% by default, which would otherwise
+   stretch this to fill the row and push the composer onto its own line below instead of
+   beside it. */
+#voice-orb-wrap { flex: none; width: auto !important; display: flex !important; align-items: center;
+  gap: 6px; padding: 0; }
+#voice-orb-wrap .orb-wrap, #voice-orb-wrap .brand-title, #voice-orb-wrap .status-pill,
+#voice-orb-wrap .dock-btn:not(.dock-btn--wake):not(.dock-btn--mic) { display: none; }
+#voice-orb-wrap .dock { gap: 6px; }
+#voice-orb-wrap .dock-btn { width: 36px; height: 36px; }
+#voice-orb-wrap .dock-btn svg { width: 15px; height: 15px; flex: none; }
+#voice-orb-wrap .dock-btn--mic { width: 42px; height: 42px; }
 #voice-orb-wrap #end-conv-btn { height: 22px; min-width: 56px; font-size: .62rem; }
 
-#chat-view #composer-wrap { padding: 8px 16px 16px; border-top: none; }
+#chat-view #composer-wrap { flex: 1; min-width: 0; padding: 0; border-top: none; }
 #chat-view #composer-input textarea, #chat-view #composer-input input {
   background: rgba(255,255,255,.05) !important; border-radius: 999px !important; padding: 10px 16px !important; }
 #chat-view #send-btn { border-radius: 50% !important; background: var(--text) !important;
@@ -634,14 +646,28 @@ JS = r"""
     try { localStorage.setItem("awaaz-theme", next); } catch (e) {}
   };
 
-  // ── Coucou-style 3-state notch: collapsed (small pill) -> panel (quick view) -> full
-  // (the existing, fully-functional dashboard). Switching states never rebuilds or refetches
-  // anything — #topbar/#dashboard are the same DOM nodes throughout, this only toggles which
+  // ── Coucou-style 3-state notch: collapsed (small pill) -> panel (quick view) -> full (the
+  // chat view). Switching states never rebuilds or refetches anything, it only toggles which
   // layer is visible (see CSS: html[data-notch]). ──
   window.awaazSetNotch = function (state) {
     document.documentElement.dataset.notch = state;
     try { localStorage.setItem("awaaz-notch", state); } catch (e) {}
+    awaazSyncTopbarActive();
   };
+  // Home/Chat act as a 2-way tab indicator: Home highlights while the chat view is open, Chat
+  // highlights while the conversation-history drawer is open (see .pill-icon.active in CSS).
+  window.awaazSyncTopbarActive = function () {
+    const home = document.querySelector('.pill-icon[title="Home"]');
+    const chat = document.querySelector('.pill-icon[title="Conversations"]');
+    const sidebarOpen = !!document.getElementById("app-root")?.classList.contains("sidebar-open");
+    const isFull = document.documentElement.dataset.notch === "full";
+    if (home) home.classList.toggle("active", isFull && !sidebarOpen);
+    if (chat) chat.classList.toggle("active", sidebarOpen);
+  };
+  // The notch state is restored directly onto html[data-notch] by head()'s init script, not
+  // through awaazSetNotch, so the initial sync needs its own call once the topbar actually
+  // exists (same reasoning as the other DOMContentLoaded/setInterval syncs in this file).
+  document.addEventListener("DOMContentLoaded", awaazSyncTopbarActive);
   // Tapping outside the open quick-view panel collapses it back to the pill, same pattern as
   // the sidebar's own outside-click-to-close below.
   document.addEventListener("click", function (e) {
@@ -783,6 +809,7 @@ JS = r"""
   window.awaazToggleSidebar = function () {
     const root = document.getElementById("app-root");
     if (root) root.classList.toggle("sidebar-open");
+    awaazSyncTopbarActive();
   };
   document.addEventListener("click", function (e) {
     const root = document.getElementById("app-root");

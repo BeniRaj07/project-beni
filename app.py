@@ -532,17 +532,21 @@ def build_ui() -> gr.Blocks:
                                                     elem_classes="chip-btn", size="sm")
                 chatbot.render()
                 status_line.render()
-                gr.HTML(theme.voice_orb_html(), elem_id="voice-orb-wrap")
                 with gr.Row(elem_id="audio-row"):
                     audio_out.render()
                     stop_audio_btn.render()
                 mic_upload.render()
                 task_toggle_trigger.render()
                 task_toggle_btn.render()
-                with gr.Column(elem_id="composer-wrap"):
-                    with gr.Row(elem_id="composer"):
-                        text_in.render()
-                        send_btn.render()
+                # The mic (same tap-to-talk voice session as before - orb/wake-word/barge-in
+                # all unchanged) sits right beside the text composer in one row, instead of in
+                # its own section above it.
+                with gr.Row(elem_id="chat-input-row"):
+                    gr.HTML(theme.voice_orb_html(), elem_id="voice-orb-wrap")
+                    with gr.Column(elem_id="composer-wrap"):
+                        with gr.Row(elem_id="composer"):
+                            text_in.render()
+                            send_btn.render()
 
         # ── events ───────────────────────────────────────────────────────
         turn_outputs = [chatbot, active_id, convo_state, text_in, status_line, audio_out, conv_list]
