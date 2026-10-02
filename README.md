@@ -3,7 +3,7 @@
 **A Siri-style, voice-first personal assistant — wake word, general knowledge, your own personal
 context, everyday task management, weather, football and Nepal political news — in Nepali (नेपाली)
 and English.**
-University data-science project · Python 3.11+ · Gradio · Groq Whisper + LLM · Gemini/ElevenLabs TTS
+University data-science project · Python 3.11+ · Gradio · Groq Whisper + LLM · Gemini TTS
 · JSON data store · APScheduler
 
 Say **"Hey Aawaz"** (configurable) or tap the mic, and talk naturally. Awaaz has dedicated,
@@ -73,7 +73,7 @@ table (completed and translated), `LEAGUE_CODES` (extended with Nepali names), t
 | 2 | No `timeout=` on any `requests.get` — a slow API froze the UI forever | Shared session with timeouts and retry/backoff on 5xx (`services/http.py`) |
 | 3 | Errors (quota, network, 403 plan limits) bubbled up as stack traces in the UI | Every failure becomes a friendly bilingual message; TTS failure keeps the text reply |
 | 4 | `text_to_speech()` always wrote `output.wav` → simultaneous users overwrote each other's audio | Unique file per reply + periodic clean-up |
-| 5 | Gemini TTS used for Nepali without checking support | Nepali falls back to edge-tts's native ne-NP voices automatically if Gemini/ElevenLabs can't speak it, and `scripts/check_setup.py` lets you compare all three by ear |
+| 5 | Gemini TTS used for Nepali without checking support | Nepali falls back to edge-tts's native ne-NP voices automatically if Gemini can't speak it, and `scripts/check_setup.py` lets you compare both by ear |
 | 6 | `classify_intent` parsed JSON with `.replace("json", "", 1)` and `json.loads` → crashed on fences/chatter and could corrupt values containing "json" | JSON mode + robust extraction + retry + **Pydantic** validation; bad fields become `None` instead of crashing |
 | 7 | News API key sent in the URL query string (ends up in logs/proxies) | Sent as the `X-Api-Key` header |
 | 8 | `current_weather=True` only — could not answer *"is it raining?"* or *"tomorrow?"* | Current rain/precipitation/feels-like + hourly/daily forecast, clearly labelled "now" vs "forecast" |
@@ -107,7 +107,7 @@ table (completed and translated), `LEAGUE_CODES` (extended with Nepali names), t
                        LLM for small talk, general_ai,
                        personal answers + news summaries)
                               ▼
-                      Reply(text, spoken, language) ──► text_to_speech (Gemini/ElevenLabs → edge-tts) ──► WAV
+                      Reply(text, spoken, language) ──► text_to_speech (Gemini → edge-tts) ──► WAV
                               ▼
                       services/conversations.py saves the turn to data/conversations.json
 ```
@@ -129,7 +129,7 @@ voice-assistant/
 │   ├── http.py                   # timeouts, retries, friendly errors, cache, rate limiter
 │   ├── llm.py                    # Groq chat wrapper (JSON mode + retry)
 │   ├── speech_to_text.py         # Groq Whisper
-│   ├── text_to_speech.py         # Gemini/ElevenLabs + edge-tts fallback, unique WAV files
+│   ├── text_to_speech.py         # Gemini + edge-tts fallback, unique WAV files
 │   ├── weather.py  football.py  news.py  nepal_news.py
 │   ├── reminders.py  tasks.py    # business logic, on top of the JSON store
 │   ├── personal_context.py       # personal-memory store + lightweight retrieval — see §13
@@ -214,18 +214,13 @@ Fill in `.env`:
 | `GEMINI_API_KEY` | aistudio.google.com/apikey | primary TTS engine by default; preview model has a daily quota |
 | `NEWS_API_KEY` | newsapi.org/register | developer plan: localhost only, articles delayed ~24 h; powers both football news and Nepal political news |
 | `FOOTBALL_DATA_KEY` | football-data.org/client/register | 10 requests/min, the six supported competitions included; scores may be delayed |
-| `ELEVENLABS_API_KEY` *(optional)* | elevenlabs.io/app/settings/api-keys | only needed if you want an ElevenLabs voice instead of Gemini's — see below |
 
 Open-Meteo needs no key. The timezone defaults to `Asia/Kathmandu` (`APP_TIMEZONE` in `.env`).
 `WAKE_PHRASES` (optional, default `Hey Aawaz,Aawaz`) sets the wake word(s) — see §14.
 
-**Choosing a voice:** with no `ELEVENLABS_API_KEY`, replies are spoken with **Gemini TTS** (the
-original project's engine) by default, falling back to edge-tts automatically for anything Gemini
-can't say. If you add an ElevenLabs key, that becomes the default engine instead (set
-`TTS_ENGINE_EN`/`TTS_ENGINE_NE=gemini` in `.env` to keep using Gemini even with a key configured).
-To use a specific ElevenLabs voice, open its Voice Library page and click **Add to my voices**
-(library voices must be in your account before the API can use them), then set
-`ELEVENLABS_VOICE_ID` in `.env`.
+**Choosing a voice:** replies are spoken with **Gemini TTS** by default, falling back to edge-tts
+automatically for anything Gemini can't say. Set `TTS_ENGINE_EN`/`TTS_ENGINE_NE=edge` in `.env` to
+make edge-tts the first choice instead.
 
 Check everything before a demo (also creates Nepali/English TTS samples in `data/tts_check/`):
 
@@ -335,10 +330,9 @@ in case the venue Wi-Fi blocks the APIs.
 * Whisper sometimes labels Nepali speech as Hindi; this can occasionally show up as a mis-detected
   language for a short or unclear clip.
 * Romanized Nepali input is understood, but replies are written in Devanagari (better for TTS).
-* With an ElevenLabs key configured, Nepali speech uses `eleven_v3` (`eleven_multilingual_v2` does
-  not include Nepali) and costs ElevenLabs credits; if the plan or model rejects Nepali, the app
-  automatically falls back to edge-tts's native ne-NP voices — free, but an unofficial API that
-  needs internet access to Microsoft's read-aloud service.
+* If Gemini rejects Nepali or hits its quota, the app automatically falls back to edge-tts's native
+  ne-NP voices — free, but an unofficial API that needs internet access to Microsoft's read-aloud
+  service.
 * Free tiers: NewsAPI articles are delayed and localhost-only; Football-Data.org scores may be delayed
   and live scores may be unavailable.
 * The mic button needs one browser permission prompt for the microphone the first time you use it.

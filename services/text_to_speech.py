@@ -1,9 +1,6 @@
-"""Text-to-speech with three engines and automatic fallback.
+"""Text-to-speech with two engines and automatic fallback.
 
-* ElevenLabs (default for every reply) — the voice FL6uoOl4FRyQjIxYJbjj. English uses
-  eleven_multilingual_v2; Nepali uses eleven_v3, which has ElevenLabs' broadest language support
-  (multilingual_v2 does not include Nepali).
-* Gemini TTS (from the original project).
+* Gemini TTS (default for every reply).
 * edge-tts — native Nepali neural voices (ne-NP-HemkalaNeural / ne-NP-SagarNeural).
 
 If the first engine fails (no key, no credits, unsupported language, network), the next one is
@@ -163,36 +160,9 @@ def edge_tts_synthesize(text: str, language: str) -> Path:
         return mp3_path
 
 
-# ── ElevenLabs engine ───────────────────────────────────────────────────────
-
-ELEVENLABS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
-
-
-def elevenlabs_tts(text: str, language: str) -> Path:
-    key = require_key(settings.elevenlabs_api_key, "ELEVENLABS_API_KEY")
-    model = settings.elevenlabs_model_ne if language == "ne" else settings.elevenlabs_model_en
-    body: dict = {"text": text, "model_id": model,
-                  "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}}
-    if "multilingual_v2" not in model:          # language_code is rejected by multilingual_v2 models
-        body["language_code"] = "ne" if language == "ne" else "en"
-    try:
-        audio = post_for_bytes(
-            "ElevenLabs", ELEVENLABS_URL.format(voice_id=settings.elevenlabs_voice_id),
-            json_body=body, params={"output_format": "wav_24000"},
-            headers={"xi-api-key": key, "Accept": "audio/wav"}, timeout=60)
-    except ServiceError as e:
-        hint = " — open the voice link and click 'Add to my voices' first" if e.status == 404 else ""
-        raise TTSError(f"ElevenLabs: {e.user_message}{hint}") from e
-    if not audio.startswith(b"RIFF"):
-        raise TTSError("ElevenLabs returned audio in an unexpected format")
-    out = new_audio_path()
-    out.write_bytes(audio)
-    return out
-
-
-ENGINES = {"elevenlabs": elevenlabs_tts, "gemini": lambda text, lang: gemini_tts(text), "edge": edge_tts_synthesize}
+ENGINES = {"gemini": lambda text, lang: gemini_tts(text), "edge": edge_tts_synthesize}
 # Fallback order after the configured engine: Nepali prefers the dedicated ne-NP voices
-FALLBACK_ORDER = {"en": ["elevenlabs", "gemini", "edge"], "ne": ["elevenlabs", "edge", "gemini"]}
+FALLBACK_ORDER = {"en": ["gemini", "edge"], "ne": ["edge", "gemini"]}
 
 
 def synthesize(text: str, language: str = "en") -> Path:

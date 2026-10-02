@@ -32,7 +32,6 @@ class Settings:
     anthropic_api_key: str = field(default_factory=lambda: _env("ANTHROPIC_API_KEY"))
     news_api_key: str = field(default_factory=lambda: _env("NEWS_API_KEY"))
     football_data_key: str = field(default_factory=lambda: _env("FOOTBALL_DATA_KEY"))
-    elevenlabs_api_key: str = field(default_factory=lambda: _env("ELEVENLABS_API_KEY"))
 
     # Which service answers chat/intent prompts: "anthropic" or "groq". Blank = Claude whenever an
     # ANTHROPIC_API_KEY is set, otherwise Groq. (Groq still does speech-to-text either way.)
@@ -45,17 +44,10 @@ class Settings:
     gemini_tts_model: str = field(default_factory=lambda: _env("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts"))
     gemini_voice: str = field(default_factory=lambda: _env("GEMINI_VOICE", "Kore"))
 
-    # Text-to-speech engine tried first per language: "gemini", "elevenlabs" or "edge".
-    # The others are used automatically as fallbacks (see services/text_to_speech.py).
-    # With no TTS_ENGINE_* override, Gemini is primary (matches Gemini's kept-and-extended role in
-    # this project) unless an ElevenLabs key is configured, in which case that voice is used first.
-    tts_engine_en: str = field(default_factory=lambda: _env("TTS_ENGINE_EN", ""))
-    tts_engine_ne: str = field(default_factory=lambda: _env("TTS_ENGINE_NE", ""))
-    # ElevenLabs voice used for every spoken reply (https://elevenlabs.io/voices/FL6uoOl4FRyQjIxYJbjj)
-    elevenlabs_voice_id: str = field(default_factory=lambda: _env("ELEVENLABS_VOICE_ID", "FL6uoOl4FRyQjIxYJbjj"))
-    # multilingual_v2 does not cover Nepali; eleven_v3 has the broadest language support
-    elevenlabs_model_en: str = field(default_factory=lambda: _env("ELEVENLABS_MODEL_EN", "eleven_multilingual_v2"))
-    elevenlabs_model_ne: str = field(default_factory=lambda: _env("ELEVENLABS_MODEL_NE", "eleven_v3"))
+    # Text-to-speech engine tried first per language: "gemini" or "edge". The other is used
+    # automatically as a fallback (see services/text_to_speech.py). Gemini is primary by default.
+    tts_engine_en: str = field(default_factory=lambda: _env("TTS_ENGINE_EN", "gemini"))
+    tts_engine_ne: str = field(default_factory=lambda: _env("TTS_ENGINE_NE", "gemini"))
     edge_voice_en: str = field(default_factory=lambda: _env("EDGE_VOICE_EN", "en-US-JennyNeural"))
     edge_voice_ne: str = field(default_factory=lambda: _env("EDGE_VOICE_NE", "ne-NP-HemkalaNeural"))
 
@@ -78,14 +70,6 @@ class Settings:
     server_port: int = field(default_factory=lambda: int(_env("SERVER_PORT", "7860")))
     # Optional "username:password" to protect the UI if you ever expose it beyond localhost
     app_auth: str = field(default_factory=lambda: _env("APP_AUTH"))
-
-    def __post_init__(self) -> None:
-        # Resolve the adaptive TTS default described above, now that elevenlabs_api_key is known.
-        auto_default = "elevenlabs" if self.elevenlabs_api_key else "gemini"
-        if not self.tts_engine_en:
-            object.__setattr__(self, "tts_engine_en", auto_default)
-        if not self.tts_engine_ne:
-            object.__setattr__(self, "tts_engine_ne", auto_default)
 
     @property
     def tz(self) -> ZoneInfo:

@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Literal, Optional
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 Language = Literal["en", "ne"]
 Recurrence = Literal["none", "daily", "weekly", "monthly"]
@@ -153,7 +153,13 @@ class UserSettings(BaseModel):
 
     default_language: Language = "en"
     timezone: str = "Asia/Kathmandu"
-    voice_engine: Literal["elevenlabs", "gemini", "edge"] = "elevenlabs"
+    voice_engine: Literal["gemini", "edge"] = "gemini"
     auto_play: bool = True
     theme: Literal["dark", "light"] = "dark"
     briefing_on_open: bool = True
+
+    @field_validator("voice_engine", mode="before")
+    @classmethod
+    def _retired_engines(cls, v):
+        # settings.json files saved while ElevenLabs was supported still say "elevenlabs"
+        return "gemini" if v == "elevenlabs" else v
