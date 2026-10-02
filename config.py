@@ -29,9 +29,15 @@ class Settings:
     # API keys
     gemini_api_key: str = field(default_factory=lambda: _env("GEMINI_API_KEY"))
     groq_api_key: str = field(default_factory=lambda: _env("GROQ_API_KEY"))
+    anthropic_api_key: str = field(default_factory=lambda: _env("ANTHROPIC_API_KEY"))
     news_api_key: str = field(default_factory=lambda: _env("NEWS_API_KEY"))
     football_data_key: str = field(default_factory=lambda: _env("FOOTBALL_DATA_KEY"))
     elevenlabs_api_key: str = field(default_factory=lambda: _env("ELEVENLABS_API_KEY"))
+
+    # Which service answers chat/intent prompts: "anthropic" or "groq". Blank = Claude whenever an
+    # ANTHROPIC_API_KEY is set, otherwise Groq. (Groq still does speech-to-text either way.)
+    llm_provider: str = field(default_factory=lambda: _env("LLM_PROVIDER").lower())
+    anthropic_model: str = field(default_factory=lambda: _env("ANTHROPIC_MODEL", "claude-opus-5-5"))
 
     # Models
     groq_llm_model: str = field(default_factory=lambda: _env("GROQ_LLM_MODEL", "openai/gpt-oss-20b"))

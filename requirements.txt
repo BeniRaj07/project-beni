@@ -2,6 +2,7 @@
 gradio>=6.0,<7
 
 # AI services
+anthropic>=0.40          # Claude chat LLM (intent, summaries, replies)
 groq>=0.11                 # Whisper speech-to-text + LLM (intent, summaries)
 google-genai>=1.0          # Gemini text-to-speech
 edge-tts>=7.0               # Nepali-capable TTS fallback (ne-NP neural voices)
