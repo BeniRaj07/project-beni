@@ -3,7 +3,7 @@
 **A Siri-style, voice-first personal assistant — wake word, general knowledge, your own personal
 context, everyday task management, weather, football and Nepal political news — in Nepali (नेपाली)
 and English.**
-University data-science project · Python 3.11+ · Gradio · Groq Whisper + LLM · Gemini TTS
+University data-science project · Python 3.11+ · Gradio · Groq Whisper + LLM · Groq TTS
 · JSON data store · APScheduler
 
 Say **"Hey Aawaz"** (configurable) or tap the mic, and talk naturally. Awaaz has dedicated,
@@ -211,16 +211,17 @@ Fill in `.env`:
 | Key | Where to get it | Free tier notes |
 |---|---|---|
 | `GROQ_API_KEY` | console.groq.com/keys | generous; rate-limited per minute |
-| `GEMINI_API_KEY` | aistudio.google.com/apikey | primary TTS engine by default; preview model has a daily quota |
+| `GEMINI_API_KEY` *(optional)* | aistudio.google.com/apikey | backup TTS engine only; preview model has a daily quota |
 | `NEWS_API_KEY` | newsapi.org/register | developer plan: localhost only, articles delayed ~24 h; powers both football news and Nepal political news |
 | `FOOTBALL_DATA_KEY` | football-data.org/client/register | 10 requests/min, the six supported competitions included; scores may be delayed |
 
 Open-Meteo needs no key. The timezone defaults to `Asia/Kathmandu` (`APP_TIMEZONE` in `.env`).
 `WAKE_PHRASES` (optional, default `Hey Aawaz,Aawaz`) sets the wake word(s) — see §14.
 
-**Choosing a voice:** replies are spoken with **Gemini TTS** by default, falling back to edge-tts
-automatically for anything Gemini can't say. Set `TTS_ENGINE_EN`/`TTS_ENGINE_NE=edge` in `.env` to
-make edge-tts the first choice instead.
+**Choosing a voice:** English replies are spoken with **Groq Orpheus TTS** (same `GROQ_API_KEY`;
+accept the model's terms once in the Groq console, and pick a voice with `GROQ_TTS_VOICE`). Groq has
+no Nepali voice, so Nepali is spoken by **edge-tts**. Gemini TTS is an optional backup if you set
+`GEMINI_API_KEY`. Change the first choice with `TTS_ENGINE_EN` / `TTS_ENGINE_NE` in `.env`.
 
 Check everything before a demo (also creates Nepali/English TTS samples in `data/tts_check/`):
 

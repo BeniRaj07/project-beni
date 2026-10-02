@@ -153,7 +153,7 @@ class UserSettings(BaseModel):
 
     default_language: Language = "en"
     timezone: str = "Asia/Kathmandu"
-    voice_engine: Literal["gemini", "edge"] = "gemini"
+    voice_engine: Literal["groq", "gemini", "edge"] = "groq"
     auto_play: bool = True
     theme: Literal["dark", "light"] = "dark"
     briefing_on_open: bool = True

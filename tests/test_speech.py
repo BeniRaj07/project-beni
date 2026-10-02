@@ -80,7 +80,7 @@ def test_clean_for_speech_removes_markdown_and_urls():
 def fake_engines(monkeypatch, tmp_path, failing=()):
     """Replace every engine with a stub that records calls (and optionally fails)."""
     used = []
-    for name in ("gemini", "edge"):
+    for name in ("groq", "gemini", "edge"):
         def engine(text, lang, name=name):
             used.append(name)
             if name in failing:
@@ -90,26 +90,26 @@ def fake_engines(monkeypatch, tmp_path, failing=()):
     return used
 
 
-def test_gemini_is_the_default_engine_for_both_languages(monkeypatch, tmp_path):
+def test_configured_engine_is_used_first_for_both_languages(monkeypatch, tmp_path):
     used = fake_engines(monkeypatch, tmp_path)
-    monkeypatch.setattr(tts, "settings", dataclasses.replace(tts.settings, tts_engine_en="gemini",
-                                                             tts_engine_ne="gemini"))
-    assert tts.synthesize("Hello", "en") == tmp_path / "gemini.wav"
-    assert tts.synthesize("नमस्ते", "ne") == tmp_path / "gemini.wav"
-    assert used == ["gemini", "gemini"]
+    monkeypatch.setattr(tts, "settings", dataclasses.replace(tts.settings, tts_engine_en="groq",
+                                                             tts_engine_ne="edge"))
+    assert tts.synthesize("Hello", "en") == tmp_path / "groq.wav"
+    assert tts.synthesize("नमस्ते", "ne") == tmp_path / "edge.wav"
+    assert used == ["groq", "edge"]
 
 
 def test_fallback_order_depends_on_language(monkeypatch, tmp_path):
-    used = fake_engines(monkeypatch, tmp_path, failing=("gemini",))
-    monkeypatch.setattr(tts, "settings", dataclasses.replace(tts.settings, tts_engine_en="gemini",
-                                                             tts_engine_ne="gemini"))
-    assert tts.synthesize("नमस्ते", "ne") == tmp_path / "edge.wav"
-    assert tts.synthesize("Hello", "en") == tmp_path / "edge.wav"
-    assert used == ["gemini", "edge", "gemini", "edge"]
+    used = fake_engines(monkeypatch, tmp_path, failing=("groq",))
+    monkeypatch.setattr(tts, "settings", dataclasses.replace(tts.settings, tts_engine_en="groq",
+                                                             tts_engine_ne="groq"))
+    assert tts.synthesize("नमस्ते", "ne") == tmp_path / "edge.wav"      # native Nepali voice next
+    assert tts.synthesize("Hello", "en") == tmp_path / "gemini.wav"
+    assert used == ["groq", "edge", "groq", "gemini"]
 
 
 def test_all_engines_failing_raises_tts_error(monkeypatch, tmp_path):
-    fake_engines(monkeypatch, tmp_path, failing=("gemini", "edge"))
+    fake_engines(monkeypatch, tmp_path, failing=("groq", "gemini", "edge"))
     with pytest.raises(TTSError, match="voice reply unavailable"):
         tts.synthesize("Hello", "en")
 
@@ -155,3 +155,36 @@ def test_post_for_bytes_reports_paid_plan_errors(monkeypatch):
     monkeypatch.setattr(http._session, "request",
                         lambda *a, **k: SimpleNamespace(status_code=200, content=b"RIFF...", json=lambda: {}))
     assert http.post_for_bytes("TTS", "https://x", json_body={}) == b"RIFF..."
+
+
+# ── Groq Orpheus engine ─────────────────────────────────────────────────────
+
+def test_groq_text_is_split_into_200_char_requests():
+    text = "First sentence here. " + "word " * 80 + "Last one!"
+    pieces = tts._split_for_groq(text)
+    assert all(0 < len(p) <= 200 for p in pieces) and len(pieces) >= 2
+    assert " ".join(pieces).split() == text.split()
+
+
+def test_groq_tts_joins_chunks_into_one_wav(monkeypatch):
+    import io
+
+    def fake_wav(n):
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as wf:
+            wf.setnchannels(1), wf.setsampwidth(2), wf.setframerate(24000)
+            wf.writeframes(b"\x01\x00" * n)
+        return buf.getvalue()
+
+    sent = []
+    speech = SimpleNamespace(create=lambda **kw: (sent.append(kw), SimpleNamespace(read=lambda: fake_wav(100)))[1])
+    monkeypatch.setattr("services.llm.get_groq_client", lambda: SimpleNamespace(audio=SimpleNamespace(speech=speech)))
+    path = tts.groq_tts("Hello there. " + "x" * 190 + ". Bye.", "en")
+    assert len(sent) >= 2 and all(k["response_format"] == "wav" and len(k["input"]) <= 200 for k in sent)
+    with wave.open(str(path)) as wf:
+        assert wf.getnframes() == 100 * len(sent) and wf.getframerate() == 24000
+
+
+def test_groq_tts_refuses_nepali():
+    with pytest.raises(TTSError, match="English"):
+        tts.groq_tts("नमस्ते", "ne")

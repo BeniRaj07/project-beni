@@ -1,6 +1,7 @@
-"""Text-to-speech with two engines and automatic fallback.
+"""Text-to-speech with three engines and automatic fallback.
 
-* Gemini TTS (default for every reply).
+* Groq Orpheus TTS (default for English). English only, so Nepali skips it.
+* Gemini TTS (optional fallback; needs GEMINI_API_KEY).
 * edge-tts — native Nepali neural voices (ne-NP-HemkalaNeural / ne-NP-SagarNeural).
 
 If the first engine fails (no key, no credits, unsupported language, network), the next one is
@@ -12,6 +13,7 @@ each other's audio.
 from __future__ import annotations
 
 import asyncio
+import io
 import logging
 import math
 import re
@@ -127,6 +129,62 @@ def gemini_tts(text: str, voice: str | None = None) -> Path:
     return out
 
 
+# ── Groq engine (Orpheus, English only) ─────────────────────────────────────
+
+GROQ_TTS_MAX_CHARS = 200        # Groq's Orpheus models accept at most 200 characters per request
+
+
+def _split_for_groq(text: str) -> list[str]:
+    """Split into <=200-char pieces at sentence ends (then spaces) so each piece is one request."""
+    chunks: list[str] = []
+    for sentence in re.split(r"(?<=[.!?])\s+", text.strip()):
+        while len(sentence) > GROQ_TTS_MAX_CHARS:
+            cut = sentence.rfind(" ", 0, GROQ_TTS_MAX_CHARS)
+            cut = cut if cut > 0 else GROQ_TTS_MAX_CHARS
+            chunks.append(sentence[:cut].strip())
+            sentence = sentence[cut:].strip()
+        if sentence:
+            chunks.append(sentence)
+    # merge short neighbours back together so we make as few requests as possible
+    merged: list[str] = []
+    for c in chunks:
+        if merged and len(merged[-1]) + 1 + len(c) <= GROQ_TTS_MAX_CHARS:
+            merged[-1] += " " + c
+        else:
+            merged.append(c)
+    return merged
+
+
+def groq_tts(text: str, language: str = "en") -> Path:
+    if language != "en":
+        raise TTSError("Groq speech only supports English")
+    from services.llm import get_groq_client
+    client = get_groq_client()
+    out, params, frames = new_audio_path(), None, []
+    try:
+        for piece in _split_for_groq(text):
+            resp = client.audio.speech.create(model=settings.groq_tts_model, voice=settings.groq_tts_voice,
+                                              input=piece, response_format="wav", timeout=30)
+            with wave.open(io.BytesIO(resp.read())) as wf:
+                params = params or wf.getparams()
+                frames.append(wf.readframes(wf.getnframes()))
+    except Exception as e:  # noqa: BLE001
+        if type(e).__module__.startswith("groq"):
+            import groq
+            if isinstance(e, groq.RateLimitError):
+                raise TTSError("the Groq speech quota is exhausted") from e
+            if isinstance(e, groq.AuthenticationError):
+                raise TTSError("the GROQ_API_KEY was rejected") from e
+            raise TTSError("Groq speech failed — accept the TTS model's terms at console.groq.com/playground?model="
+                           + settings.groq_tts_model) from e
+        raise
+    if not frames or params is None:
+        raise TTSError("Groq returned no audio")
+    save_wave_file(out, b"".join(frames), channels=params.nchannels, rate=params.framerate,
+                   sample_width=params.sampwidth)
+    return out
+
+
 # ── edge-tts engine (Nepali-capable fallback) ───────────────────────────────
 
 def _mp3_to_wav(mp3_path: Path) -> Path:
@@ -160,9 +218,9 @@ def edge_tts_synthesize(text: str, language: str) -> Path:
         return mp3_path
 
 
-ENGINES = {"gemini": lambda text, lang: gemini_tts(text), "edge": edge_tts_synthesize}
+ENGINES = {"groq": groq_tts, "gemini": lambda text, lang: gemini_tts(text), "edge": edge_tts_synthesize}
 # Fallback order after the configured engine: Nepali prefers the dedicated ne-NP voices
-FALLBACK_ORDER = {"en": ["gemini", "edge"], "ne": ["edge", "gemini"]}
+FALLBACK_ORDER = {"en": ["groq", "gemini", "edge"], "ne": ["edge", "gemini"]}
 
 
 def synthesize(text: str, language: str = "en") -> Path:

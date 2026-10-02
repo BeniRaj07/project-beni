@@ -44,10 +44,16 @@ class Settings:
     gemini_tts_model: str = field(default_factory=lambda: _env("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts"))
     gemini_voice: str = field(default_factory=lambda: _env("GEMINI_VOICE", "Kore"))
 
-    # Text-to-speech engine tried first per language: "gemini" or "edge". The other is used
-    # automatically as a fallback (see services/text_to_speech.py). Gemini is primary by default.
-    tts_engine_en: str = field(default_factory=lambda: _env("TTS_ENGINE_EN", "gemini"))
-    tts_engine_ne: str = field(default_factory=lambda: _env("TTS_ENGINE_NE", "gemini"))
+    # Groq Orpheus TTS (English only - Nepali is spoken by edge-tts). Voices: autumn, diana,
+    # hannah, austin, daniel, troy. The model's terms must be accepted once in the Groq console.
+    groq_tts_model: str = field(default_factory=lambda: _env("GROQ_TTS_MODEL", "canopylabs/orpheus-v1-english"))
+    groq_tts_voice: str = field(default_factory=lambda: _env("GROQ_TTS_VOICE", "hannah"))
+
+    # Text-to-speech engine tried first per language: "groq", "gemini" or "edge". The others are
+    # used automatically as fallbacks (see services/text_to_speech.py). Groq cannot speak Nepali,
+    # so Nepali defaults to edge-tts's native ne-NP voices.
+    tts_engine_en: str = field(default_factory=lambda: _env("TTS_ENGINE_EN", "groq"))
+    tts_engine_ne: str = field(default_factory=lambda: _env("TTS_ENGINE_NE", "edge"))
     edge_voice_en: str = field(default_factory=lambda: _env("EDGE_VOICE_EN", "en-US-JennyNeural"))
     edge_voice_ne: str = field(default_factory=lambda: _env("EDGE_VOICE_NE", "ne-NP-HemkalaNeural"))
 
