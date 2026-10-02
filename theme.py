@@ -168,10 +168,11 @@ h1, h2, h3, h4 { font-family: 'Inter', sans-serif !important; }
    pill first. The pill/panel/chat-view subtree is deliberately theme-independent (hardcoded dark
    colors, not var(--bg)/var(--text)) so it reads like a fixed black notch island regardless of
    the app's own light/dark toggle underneath it. */
-/* Topbar only shows alongside the full chat view, not the quick panel - the panel is meant to
-   float on its own (see the reference: mascot card + tiles, nothing above it). */
+/* Topbar never shows: not in the pill, not in the quick panel, and not in the chat view either -
+   "Open Awaaz" opens the chat card on its own (minimize/history buttons live in its header). */
 html[data-notch="collapsed"] #topbar,
-html[data-notch="panel"] #topbar { display: none !important; }
+html[data-notch="panel"] #topbar,
+html[data-notch="full"] #topbar { display: none !important; }
 /* !important on both show-overrides below: Gradio auto-prefixes plain class rules with its own
    `.gradio-container... .contain` scope, which inflates the base `display: none` rules' real
    specificity past these html[data-notch]-qualified overrides (whose own auto-prefixed copies
@@ -267,8 +268,8 @@ html[data-notch="full"] #chat-view { display: flex !important; }
   --border-strong: rgba(94,195,255,.32); --text: #e9f1fb; --muted: #8a97ad; --faint: #566378;
   --accent: #4fd1ff; --accent-2: #4b8bff; --accent-soft: rgba(79,209,255,.10);
   --good: #34d399; --good-soft: rgba(52,211,153,.12); --warn: #f5c451; --warn-soft: rgba(245,196,81,.12);
-  position: fixed; z-index: 30; top: 70px; left: 50%; transform: translateX(-50%);
-  width: min(720px, calc(100vw - 32px)); height: auto; max-height: min(340px, calc(100vh - 110px));
+  position: fixed; z-index: 30; top: 24px; left: 50%; transform: translateX(-50%);
+  width: min(720px, calc(100vw - 32px)); height: auto; max-height: min(340px, calc(100vh - 60px));
   flex-direction: column; gap: 4px;
   background: var(--bg); border: 1px solid var(--border); border-radius: 26px;
   box-shadow: 0 30px 70px -24px rgba(0,0,0,.65); overflow: hidden;
@@ -282,6 +283,12 @@ html[data-notch="full"] #chat-view { display: flex !important; }
    just rely on the outer #chat-view-header row to lay them out side by side. */
 .chat-view-brand { position: relative; z-index: 1; display: flex; align-items: center; gap: 8px; flex: 1; }
 .chat-view-title { font-weight: 700; font-size: .88rem; color: var(--text) !important; }
+.chat-view-brand .spacer { flex: 1; }
+.chat-view-btn { position: relative; z-index: 1; width: 30px; height: 30px; border-radius: 50%;
+  display: grid; place-items: center; background: rgba(255,255,255,.06); border: 1px solid var(--border);
+  color: var(--muted) !important; cursor: pointer; transition: .15s ease; }
+.chat-view-btn:hover { color: var(--accent) !important; background: var(--accent-soft); }
+.chat-view-btn svg { width: 15px; height: 15px; }
 #chat-view .chip-btn { position: relative; z-index: 1; }
 
 /* height:auto on #chat-view above means this no longer stretches to fill a tall fixed-height
@@ -1544,7 +1551,11 @@ def chat_view_header_html() -> str:
     vertically as plain block content instead of sitting side by side, inflating the header."""
     return f"""
 <div class="chat-view-glow"></div>
-<div class="chat-view-brand">{mascot_html("md")}<span class="chat-view-title">Awaaz</span></div>"""
+<div class="chat-view-brand">{mascot_html("md")}<span class="chat-view-title">Awaaz</span>
+  <span class="spacer"></span>
+  <button class="chat-view-btn" onclick="awaazToggleSidebar()" title="Conversation history">{CLOCK_SVG}</button>
+  <button class="chat-view-btn" onclick="awaazSetNotch('panel'); requestAnimationFrame(awaazPositionNotchPanel)" title="Minimize">{MINIMIZE_SVG}</button>
+</div>"""
 
 
 def conversation_welcome_html() -> str:
