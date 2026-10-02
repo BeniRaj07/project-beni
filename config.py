@@ -33,13 +33,16 @@ class Settings:
     news_api_key: str = field(default_factory=lambda: _env("NEWS_API_KEY"))
     football_data_key: str = field(default_factory=lambda: _env("FOOTBALL_DATA_KEY"))
 
-    # Which service answers chat/intent prompts: "anthropic" or "groq". Blank = Claude whenever an
-    # ANTHROPIC_API_KEY is set, otherwise Groq. (Groq still does speech-to-text either way.)
+    # Which service WRITES replies: "anthropic" or "groq". Blank = Claude whenever an ANTHROPIC_API_KEY
+    # is set, otherwise Groq. Intent classification and speech-to-text are always Groq.
     llm_provider: str = field(default_factory=lambda: _env("LLM_PROVIDER").lower())
-    anthropic_model: str = field(default_factory=lambda: _env("ANTHROPIC_MODEL", "claude-opus-5-5"))
+    # Claude: final response generation. ANTHROPIC_RESPONSE_MODEL is preferred; ANTHROPIC_MODEL still works.
+    anthropic_model: str = field(default_factory=lambda: _env("ANTHROPIC_RESPONSE_MODEL") or _env("ANTHROPIC_MODEL", "claude-opus-5-5"))
 
     # Models
-    groq_llm_model: str = field(default_factory=lambda: _env("GROQ_LLM_MODEL", "openai/gpt-oss-20b"))
+    # Groq: intent classification (and the reply fallback when no Anthropic key is set).
+    # GROQ_INTENT_MODEL is the preferred name; GROQ_LLM_MODEL still works.
+    groq_llm_model: str = field(default_factory=lambda: _env("GROQ_INTENT_MODEL") or _env("GROQ_LLM_MODEL", "openai/gpt-oss-20b"))
     groq_stt_model: str = field(default_factory=lambda: _env("GROQ_STT_MODEL", "whisper-large-v3"))
     gemini_tts_model: str = field(default_factory=lambda: _env("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts"))
     gemini_voice: str = field(default_factory=lambda: _env("GEMINI_VOICE", "Kore"))

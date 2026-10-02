@@ -87,7 +87,7 @@ def test_save_personal_info_then_query_retrieves_it(llm_replies, monkeypatch):
 
     llm_replies.append({"intent": "personal_query"})
     monkeypatch.setattr(handlers, "generate_personal_answer",
-                        lambda q, lang, facts: f"You're working on {facts[0].content}.")
+                        lambda q, lang, facts, history=None: f"You're working on {facts[0].content}.")
     reply = respond("What project am I working on?", ConversationState(), now=NOW)
     assert "bilingual voice assistant called Awaaz" in reply.text
 

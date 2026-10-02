@@ -25,7 +25,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from config import require_key, settings
-from services.http import ServiceError, post_for_bytes
+from services.http import ServiceError
 
 log = logging.getLogger(__name__)
 

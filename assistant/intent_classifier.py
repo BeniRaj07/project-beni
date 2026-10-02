@@ -58,6 +58,7 @@ class IntentResult(BaseModel):
     with_reminder: bool = False
     weather_when: Optional[Literal["current", "forecast"]] = None
     clarification: Optional[str] = None
+    confidence: Optional[float] = None   # classifier's own 0-1 certainty; informational only
 
     # Lenient coercion: a bad field becomes None instead of rejecting the whole result.
     @field_validator("intent", mode="before")
@@ -66,6 +67,14 @@ class IntentResult(BaseModel):
         v = str(v or "").strip().lower()
         v = _LEGACY.get(v, v)
         return v if v in INTENTS else "out_of_scope"
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _confidence(cls, v: Any) -> Optional[float]:
+        try:
+            return min(1.0, max(0.0, float(v)))
+        except (TypeError, ValueError):
+            return None
 
     @field_validator("language", mode="before")
     @classmethod
@@ -165,6 +174,7 @@ The user may write English, Nepali in Devanagari, or Romanized Nepali (e.g. "mer
 Return ONLY a JSON object with these keys (use null when unknown):
 {
  "intent": one of %(intents)s,
+ "confidence": your certainty in the intent, a number from 0 to 1,
  "language": "ne" if the user wrote Nepali (Devanagari OR Romanized), else "en",
  "city": city name in English/Latin spelling (e.g. "काठमाडौं" -> "Kathmandu"), or null,
  "team": football team in English (e.g. "Barcelona"), or null,
@@ -254,5 +264,6 @@ def classify_intent(text: str, *, now: datetime, pending: dict | None = None, la
         result = IntentResult(clarification=None)
     if has_devanagari(text):
         result.language = "ne"   # script is a stronger signal than the model's guess
-    log.info("intent", extra={"intent": result.intent, "language": result.language})
+    log.info("[IntentClassifier] provider=groq intent=%s confidence=%s language=%s",
+             result.intent, result.confidence, result.language)
     return result

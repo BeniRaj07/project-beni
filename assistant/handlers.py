@@ -352,7 +352,7 @@ def handle_personal_query(it: IntentResult, text: str, state, now: datetime) -> 
     facts = personal_context.search_facts(text)
     if not facts:
         return Reply(t("personal_not_found", lang), lang, it.intent)
-    answer = generate_personal_answer(text, lang, facts)
+    answer = generate_personal_answer(text, lang, facts, state.history)
     return Reply(answer, lang, it.intent)
 
 

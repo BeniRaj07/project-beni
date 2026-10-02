@@ -59,7 +59,7 @@ th{color:var(--muted);font-weight:600}
 <body>
 <main>
 <h1>Awaaz — runtime architecture</h1>
-<p class="lede">A single local Python process serves a Gradio page. Every typed or spoken message goes through the same pipeline: transcribe (voice only), classify the intent, dispatch to one handler, then optionally speak the reply. Only Claude, Groq, the speech services and the public data APIs sit outside your machine.</p>
+<p class="lede">A single local Python process serves a Gradio page. Every typed or spoken message goes through the same pipeline: transcribe (voice only), Groq classifies the intent, one handler routes and fetches the data, Claude writes the reply, then it is optionally spoken. Only Groq, Claude, the speech services and the public data APIs sit outside your machine.</p>
 <div class="legend">
 <span><svg viewBox="0 0 34 10"><path class="edge-p" d="M0,5 L28,5"/><path class="m-p" d="M26,1 L34,5 L26,9z"/></svg>primary path (numbered)</span>
 <span><svg viewBox="0 0 34 10"><path class="edge-x" d="M0,5 L28,5"/><path class="m-x" d="M26,1 L34,5 L26,9z"/></svg>leaves your machine (HTTPS)</span>
@@ -93,10 +93,12 @@ th{color:var(--muted);font-weight:600}
 <rect class="box ext" x="24" y="436" width="122" height="64" rx="10"/>
 <text class="t-title" x="85.0" y="465.0" text-anchor="middle">Groq / Edge TTS</text>
 <text class="t-sub" x="85.0" y="481.0" text-anchor="middle">EN · NE voices</text>
-<rect class="box ext" x="1058" y="100" width="130" height="232" rx="10"/>
-<text class="t-title" x="1123.0" y="213.0" text-anchor="middle">Anthropic Claude</text>
-<text class="t-sub" x="1123.0" y="229.0" text-anchor="middle">intent + replies</text>
-<text class="t-sub" x="1123.0" y="242.0" text-anchor="middle">claude-opus-5-5</text>
+<rect class="box ext" x="1058" y="100" width="130" height="64" rx="10"/>
+<text class="t-title" x="1123.0" y="129.0" text-anchor="middle">Groq LLM</text>
+<text class="t-sub" x="1123.0" y="145.0" text-anchor="middle">intent classifier</text>
+<rect class="box ext" x="1058" y="268" width="130" height="64" rx="10"/>
+<text class="t-title" x="1123.0" y="297.0" text-anchor="middle">Anthropic Claude</text>
+<text class="t-sub" x="1123.0" y="313.0" text-anchor="middle">final replies</text>
 <rect class="box ext" x="1058" y="420" width="130" height="96" rx="10"/>
 <text class="t-title" x="1123.0" y="465.0" text-anchor="middle">Public data APIs</text>
 <text class="t-sub" x="1123.0" y="481.0" text-anchor="middle">Open-Meteo</text>
@@ -175,7 +177,7 @@ th{color:var(--muted);font-weight:600}
 <text class="t-lbl" x="738" y="540" text-anchor="start">every 20 s</text>
 </svg>
 </div>
-<figcaption>One request: the browser posts text or a mic clip (1), the turn pipeline gets a transcript from Groq if it was voice (2), the conversation engine asks Claude to classify it (3–4), one handler runs (5) against local JSON files, public data APIs or Claude's answer writer (6), and the reply text is spoken (7) and returned to the browser (8). Dashed amber = data leaves the machine.</figcaption>
+<figcaption>One request: the browser posts text or a mic clip (1), the turn pipeline gets a transcript from Groq if it was voice (2), the conversation engine asks Groq to classify it (3–4), one handler runs (5) against local JSON files or public data APIs, then Claude writes the reply (6), and the reply text is spoken (7) and returned to the browser (8). Dashed amber = data leaves the machine.</figcaption>
 </figure>
 
 <div class="cards">
@@ -184,9 +186,9 @@ th{color:var(--muted);font-weight:600}
 <li><b>Browser → <code>app.py</code></b>: typed text, or a recorded clip uploaded by the mic/VAD script in <code>theme.py</code>.</li>
 <li><b>Transcribe</b> (<code>speech_to_text.py</code>): Groq Whisper; language forced by the EN / ने switch when set.</li>
 <li><b><code>respond()</code></b> in <code>conversation.py</code> keeps the follow-up state (pending question, last city, last 40 messages).</li>
-<li><b>Classify</b> (<code>intent_classifier.py</code>): Claude returns a JSON intent; Pydantic validates it, bad fields become <code>None</code>.</li>
+<li><b>Classify</b> (<code>intent_classifier.py</code>): <b>Groq</b> returns a JSON intent with a confidence; Pydantic validates it, bad fields become <code>None</code>. Claude is never asked to classify.</li>
 <li><b>Dispatch</b>: <code>HANDLERS[intent]</code> in <code>handlers.py</code>.</li>
-<li><b>Handler</b> calls domain services, or the response writer which asks Claude for wording.</li>
+<li><b>Handler</b> calls domain services, then the response writer sends Claude the intent, only the retrieved context and a bounded history (1 Groq call + 1 Claude call per message).</li>
 <li><b>Speak</b> (<code>text_to_speech.py</code>): text shows first, audio follows; a TTS failure never hides the reply.</li>
 <li><b>Back to the browser</b> as chat text plus an audio file.</li>
 </ol></section>
@@ -201,8 +203,9 @@ th{color:var(--muted);font-weight:600}
 <section class="card"><h2>External dependencies</h2>
 <table>
 <tr><th>Service</th><th>Used for</th><th>Key</th></tr>
-<tr><td>Anthropic Claude</td><td>intent JSON, replies, summaries</td><td><code>ANTHROPIC_API_KEY</code></td></tr>
-<tr><td>Groq Whisper</td><td>speech-to-text</td><td><code>GROQ_API_KEY</code></td></tr>
+<tr><td>Groq LLM</td><td>intent classification</td><td><code>GROQ_API_KEY</code></td></tr>
+<tr><td>Anthropic Claude</td><td>final replies, summaries</td><td><code>ANTHROPIC_API_KEY</code></td></tr>
+<tr><td>Groq Whisper</td><td>speech-to-text</td><td>same Groq key</td></tr>
 <tr><td>Groq Orpheus</td><td>English voice</td><td>same Groq key</td></tr>
 <tr><td>Edge TTS</td><td>Nepali voice, backup</td><td>none</td></tr>
 <tr><td>Gemini TTS</td><td>optional backup voice</td><td><code>GEMINI_API_KEY</code></td></tr>
@@ -210,7 +213,7 @@ th{color:var(--muted);font-weight:600}
 <tr><td>NewsAPI</td><td>football + Nepal news</td><td><code>NEWS_API_KEY</code></td></tr>
 <tr><td>Football-Data.org</td><td>tables, results, fixtures</td><td><code>FOOTBALL_DATA_KEY</code></td></tr>
 </table>
-<p class="note">With no Anthropic key, chat falls back to Groq's LLM.</p></section>
+<p class="note">With no Anthropic key, Groq writes the replies as a fallback; classification stays on Groq either way.</p></section>
 
 <section class="card"><h2>Intent handlers (21)</h2>
 <ul>
@@ -242,7 +245,7 @@ th{color:var(--muted);font-weight:600}
 <ul>
 <li>Missing key, quota or network errors become a friendly English or Nepali message, never a stack trace (<code>conversation.respond</code>).</li>
 <li>TTS tries the next engine in order; if all fail the text reply is still shown.</li>
-<li>The Claude error text includes the API status so a bad key, no credit or an unavailable model is visible in the chat.</li>
+<li>Groq and Claude failures are handled separately (each names its own service in the message). The Claude error text includes the API status so a bad key, no credit or an unavailable model is visible in the chat.</li>
 </ul></section>
 
 <section class="card wide"><h2>Where to look in the code</h2>

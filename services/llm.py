@@ -1,5 +1,10 @@
-"""Thin wrapper around the chat LLM (Claude via the Anthropic API, or Groq) used for intent
-classification, summaries and small talk. Speech-to-text (services/speech_to_text.py) stays on Groq."""
+"""LLM entry points, with a strict split of responsibilities:
+
+* chat_json  - intent classification. ALWAYS Groq (small, cheap, structured).
+* chat_text  - final response generation. Claude (services/claude.py) when an Anthropic key is
+               configured, otherwise Groq as a fallback so the app still answers.
+
+Speech-to-text (services/speech_to_text.py) also stays on Groq."""
 from __future__ import annotations
 
 import json
@@ -22,58 +27,12 @@ def get_groq_client():
     return Groq(api_key=require_key(settings.groq_api_key, "GROQ_API_KEY"), timeout=15, max_retries=1)
 
 
-def use_anthropic() -> bool:
+def use_claude_for_responses() -> bool:
+    """Final replies come from Claude whenever ANTHROPIC_API_KEY is set (or LLM_PROVIDER=anthropic).
+    Without a key, or with LLM_PROVIDER=groq, replies fall back to Groq so the app keeps working.
+    Intent classification (chat_json) is ALWAYS Groq regardless of this setting."""
     provider = settings.llm_provider
     return provider == "anthropic" or (provider != "groq" and bool(settings.anthropic_api_key))
-
-
-@lru_cache(maxsize=1)
-def get_anthropic_client():
-    import anthropic  # lazy, like groq above
-    return anthropic.Anthropic(api_key=require_key(settings.anthropic_api_key, "ANTHROPIC_API_KEY"),
-                               timeout=60, max_retries=1)
-
-
-def _translate_anthropic_error(e: Exception) -> ServiceError:
-    import anthropic
-    if isinstance(e, anthropic.RateLimitError):
-        return RateLimitError("Claude", "the language model quota is exhausted for now — try again in a minute", status=429)
-    if isinstance(e, (anthropic.APIConnectionError, anthropic.APITimeoutError)):
-        return ServiceError("Claude", "could not reach the language model (check your internet connection)")
-    if isinstance(e, anthropic.AuthenticationError):
-        return ServiceError("Claude", "the ANTHROPIC_API_KEY was rejected", status=401)
-    detail = getattr(e, "message", "") or str(e)
-    status = getattr(e, "status_code", "")
-    return ServiceError("Claude", f"the language model returned an error ({status} {detail[:200]})".replace("( ", "("))
-
-
-def _anthropic_text(messages: list[dict[str, str]], max_tokens: int) -> str:
-    """One Claude call for OpenAI-style `messages` (system turns are lifted into `system`)."""
-    system = "\n\n".join(m["content"] for m in messages if m["role"] == "system")
-    turns = [m for m in messages if m["role"] != "system"]
-    try:
-        resp = get_anthropic_client().messages.create(
-            model=settings.anthropic_model,
-            # Thinking is always on for Claude Opus 5.5 and its tokens count against max_tokens,
-            # so leave headroom above the visible answer; low effort keeps replies fast.
-            max_tokens=max_tokens + 4000,
-            system=system or "You are a helpful assistant.",
-            messages=turns,
-            output_config={"effort": "low"},
-        )
-    except ServiceError:
-        raise
-    except Exception as e:  # noqa: BLE001 - translated into a user-safe error
-        if type(e).__module__.startswith("anthropic"):
-            log.warning("anthropic_error: %s: %s", type(e).__name__, e)
-            raise _translate_anthropic_error(e) from e
-        raise
-    if resp.stop_reason == "refusal":
-        raise ServiceError("Claude", "the language model declined that request")
-    text = "".join(b.text for b in resp.content if b.type == "text").strip()
-    if not text:
-        raise ServiceError("Claude", "the language model returned an empty answer")
-    return text
 
 
 def _is_groq_error(e: Exception) -> bool:
@@ -100,9 +59,12 @@ def _model_kwargs(max_tokens: int) -> dict[str, Any]:
     return kwargs
 
 
-def chat_text(messages: list[dict[str, str]], *, temperature: float = 0.4, max_tokens: int = 1500) -> str:
-    if use_anthropic():  # temperature is not accepted by the newest Claude models, so it's not sent
-        return _anthropic_text(messages, max_tokens)
+def chat_text(messages: list[dict[str, str]], *, temperature: float = 0.4, max_tokens: int = 1500,
+              intent: str = "unknown") -> str:
+    """Generate a final natural-language reply. `intent` is only used for logging."""
+    if use_claude_for_responses():  # newest Claude models reject `temperature`, so it isn't sent
+        from services import claude
+        return claude.generate(messages, max_tokens=max_tokens, intent=intent)
     try:
         resp = get_groq_client().chat.completions.create(
             messages=messages, temperature=temperature, **_model_kwargs(max_tokens))
@@ -136,15 +98,6 @@ def parse_json_object(raw: str) -> dict[str, Any]:
 def chat_json(messages: list[dict[str, str]], *, max_tokens: int = 1500) -> dict[str, Any]:
     """Ask for a JSON object. Uses JSON mode when the model supports it, retries once with a stricter
     reminder if the output is malformed, and raises ServiceError if it still cannot be parsed."""
-    if use_anthropic():
-        msgs = messages
-        for attempt in (1, 2):
-            try:
-                return parse_json_object(_anthropic_text(msgs, max_tokens))
-            except (ValueError, json.JSONDecodeError) as e:
-                log.warning("llm_json_parse_failed", extra={"attempt": attempt})
-                msgs = messages + [{"role": "user", "content": "Reply with ONLY the JSON object, nothing else."}]
-        raise ServiceError("Claude", "the language model gave an unreadable answer")
     json_mode = True
     msgs = messages
     last_error: Exception | None = None
@@ -169,7 +122,9 @@ def chat_json(messages: list[dict[str, str]], *, max_tokens: int = 1500) -> dict
             raise _translate_error(e) from e
         attempts += 1
         try:
-            return parse_json_object(resp.choices[0].message.content or "")
+            data = parse_json_object(resp.choices[0].message.content or "")
+            log.info("[IntentClassifier] provider=groq model=%s status=success", settings.groq_llm_model)
+            return data
         except (ValueError, json.JSONDecodeError) as e:
             last_error = e
             log.warning("llm_json_parse_failed", extra={"attempt": attempts})
