@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Awaaz Runtime Architecture</title>
+<style>
+:root{--bg:#f6f7f9;--panel:#fff;--ink:#14181f;--muted:#5b6575;--line:#c5ccd8;--accent:#1f6feb;--accent-soft:#e7f0ff;--warn:#b7791f;--warn-soft:#fff6e0;--good:#1a7f4b;}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0d1117;--panel:#151b25;--ink:#e6edf6;--muted:#93a0b4;--line:#2d3748;--accent:#58a6ff;--accent-soft:#12233d;--warn:#e3b341;--warn-soft:#2a2210;--good:#3fb97a;}}
+:root[data-theme="dark"]{--bg:#0d1117;--panel:#151b25;--ink:#e6edf6;--muted:#93a0b4;--line:#2d3748;--accent:#58a6ff;--accent-soft:#12233d;--warn:#e3b341;--warn-soft:#2a2210;--good:#3fb97a;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif}
+main{max-width:1240px;margin:0 auto;padding:28px 16px 56px}
+h1{font-size:1.6rem;margin:0 0 4px}
+.lede{color:var(--muted);margin:0 0 18px;max-width:80ch}
+.legend{display:flex;flex-wrap:wrap;gap:8px 20px;font-size:.82rem;color:var(--muted);margin:0 0 12px}
+.legend span{display:inline-flex;align-items:center;gap:7px}
+.legend svg{width:34px;height:10px}
+figure{margin:0;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:10px}
+figure svg{display:block;width:100%;height:auto;min-width:760px}
+.scroll{overflow-x:auto}
+figcaption{font-size:.85rem;color:var(--muted);padding:8px 6px 2px}
+/* svg styling */
+.box{fill:var(--panel);stroke:var(--line);stroke-width:1.4}
+.box.core{stroke:var(--accent);stroke-width:2;fill:var(--accent-soft)}
+.box.ext{stroke:var(--warn);stroke-dasharray:5 4;fill:var(--warn-soft)}
+.zone{fill:none;stroke:var(--line);stroke-width:1.3;stroke-dasharray:3 5}
+.zone-local{stroke:var(--accent);stroke-opacity:.55}
+.zone-ext{stroke:var(--warn);stroke-opacity:.7}
+.zone-disk{stroke:var(--good);stroke-opacity:.8}
+.zone-browser{stroke:var(--muted)}
+.t-title{font:700 13px -apple-system,Segoe UI,Inter,sans-serif;fill:var(--ink)}
+.t-sub{font:10px ui-monospace,SFMono-Regular,Menlo,monospace;fill:var(--muted)}
+.t-zone{font:700 10px -apple-system,Segoe UI,sans-serif;letter-spacing:.06em;fill:var(--muted)}
+.t-lbl{font:11.5px -apple-system,Segoe UI,Inter,sans-serif;fill:var(--ink)}
+.badge{fill:var(--accent)}
+.t-badge{font:700 10px sans-serif;fill:#fff}
+.edge-p{stroke:var(--accent);stroke-width:2.2}
+.edge-x{stroke:var(--warn);stroke-width:1.6;stroke-dasharray:5 3}
+.edge-s{stroke:var(--muted);stroke-width:1.5}
+.m-p{fill:var(--accent)}.m-x{fill:var(--warn)}.m-s{fill:var(--muted)}
+/* cards */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-top:20px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.card h2{font-size:.95rem;margin:0 0 8px;display:flex;align-items:center;gap:8px}
+.card ul,.card ol{margin:0;padding-left:1.15rem}
+.card li{margin:3px 0}
+.card.wide{grid-column:1/-1}
+code{font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--accent-soft);padding:1px 5px;border-radius:5px}
+.tag{font-size:.7rem;font-weight:700;border-radius:999px;padding:1px 8px;border:1px solid var(--line);color:var(--muted)}
+.tag.t1{border-color:var(--accent);color:var(--accent)}.tag.t2{border-color:var(--warn);color:var(--warn)}.tag.t3{border-color:var(--good);color:var(--good)}
+.note{color:var(--muted);font-size:.85rem}
+table{border-collapse:collapse;width:100%;font-size:.88rem}
+td,th{text-align:left;padding:4px 8px 4px 0;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:600}
+@media (max-width:640px){main{padding:18px 12px 40px}}
+</style>
+</head>
+<body>
+<main>
+<h1>Awaaz — runtime architecture</h1>
+<p class="lede">A single local Python process serves a Gradio page. Every typed or spoken message goes through the same pipeline: transcribe (voice only), classify the intent, dispatch to one handler, then optionally speak the reply. Only Claude, Groq, the speech services and the public data APIs sit outside your machine.</p>
+<div class="legend">
+<span><svg viewBox="0 0 34 10"><path class="edge-p" d="M0,5 L28,5"/><path class="m-p" d="M26,1 L34,5 L26,9z"/></svg>primary path (numbered)</span>
+<span><svg viewBox="0 0 34 10"><path class="edge-x" d="M0,5 L28,5"/><path class="m-x" d="M26,1 L34,5 L26,9z"/></svg>leaves your machine (HTTPS)</span>
+<span><svg viewBox="0 0 34 10"><path class="edge-s" d="M0,5 L28,5"/><path class="m-s" d="M26,1 L34,5 L26,9z"/></svg>supporting local call</span>
+</div>
+<figure><div class="scroll">
+<svg viewBox="0 0 1210 680" role="img" aria-label="Awaaz runtime architecture: a browser sends text or a mic clip to a local Python turn pipeline, which transcribes speech through Groq, classifies intent with Claude, dispatches to a handler that reads local JSON files or public data APIs and may ask Claude to write the reply, then speaks it through Groq or Edge TTS and returns text and audio to the browser.">
+<defs>
+<marker id="ap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="m-p" d="M0,0 L10,5 L0,10 z"/></marker>
+<marker id="ax" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="m-x" d="M0,0 L10,5 L0,10 z"/></marker>
+<marker id="as" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="m-s" d="M0,0 L10,5 L0,10 z"/></marker>
+</defs>
+<rect class="zone zone-local" x="222" y="44" width="808" height="616" rx="16"/>
+<text class="t-zone" x="234" y="66">T1 · YOUR MACHINE · one Python process · 127.0.0.1:7860</text>
+<rect class="zone zone-browser" x="12" y="236" width="148" height="128" rx="16"/>
+<text class="t-zone" x="24" y="254">T1 · BROWSER</text>
+<rect class="zone zone-ext" x="12" y="60" width="148" height="120" rx="16"/>
+<text class="t-zone" x="24" y="78">T2 · THIRD PARTY</text>
+<rect class="zone zone-ext" x="12" y="404" width="148" height="120" rx="16"/>
+<text class="t-zone" x="24" y="422">T2 · THIRD PARTY</text>
+<rect class="zone zone-ext" x="1048" y="60" width="152" height="470" rx="16"/>
+<text class="t-zone" x="1060" y="78">T2 · THIRD PARTY (internet)</text>
+<rect class="zone zone-disk" x="442" y="408" width="158" height="112" rx="16"/>
+<text class="t-zone" x="452" y="424">T3 · LOCAL DISK</text>
+<rect class="box" x="24" y="268" width="122" height="64" rx="10"/>
+<text class="t-title" x="85.0" y="297.0" text-anchor="middle">Browser UI</text>
+<text class="t-sub" x="85.0" y="313.0" text-anchor="middle">Gradio + JS</text>
+<rect class="box ext" x="24" y="100" width="122" height="64" rx="10"/>
+<text class="t-title" x="85.0" y="129.0" text-anchor="middle">Groq Whisper</text>
+<text class="t-sub" x="85.0" y="145.0" text-anchor="middle">speech-to-text</text>
+<rect class="box ext" x="24" y="436" width="122" height="64" rx="10"/>
+<text class="t-title" x="85.0" y="465.0" text-anchor="middle">Groq / Edge TTS</text>
+<text class="t-sub" x="85.0" y="481.0" text-anchor="middle">EN · NE voices</text>
+<rect class="box ext" x="1058" y="100" width="130" height="232" rx="10"/>
+<text class="t-title" x="1123.0" y="213.0" text-anchor="middle">Anthropic Claude</text>
+<text class="t-sub" x="1123.0" y="229.0" text-anchor="middle">intent + replies</text>
+<text class="t-sub" x="1123.0" y="242.0" text-anchor="middle">claude-opus-5-5</text>
+<rect class="box ext" x="1058" y="420" width="130" height="96" rx="10"/>
+<text class="t-title" x="1123.0" y="465.0" text-anchor="middle">Public data APIs</text>
+<text class="t-sub" x="1123.0" y="481.0" text-anchor="middle">Open-Meteo</text>
+<text class="t-sub" x="1123.0" y="494.0" text-anchor="middle">NewsAPI</text>
+<text class="t-sub" x="1123.0" y="507.0" text-anchor="middle">Football-Data</text>
+<rect class="box" x="240" y="100" width="140" height="64" rx="10"/>
+<text class="t-title" x="310.0" y="129.0" text-anchor="middle">Speech-to-text</text>
+<text class="t-sub" x="310.0" y="145.0" text-anchor="middle">speech_to_text.py</text>
+<rect class="box core" x="240" y="268" width="140" height="64" rx="10"/>
+<text class="t-title" x="310.0" y="297.0" text-anchor="middle">Turn pipeline</text>
+<text class="t-sub" x="310.0" y="313.0" text-anchor="middle">app.py · Gradio</text>
+<rect class="box" x="240" y="436" width="140" height="64" rx="10"/>
+<text class="t-title" x="310.0" y="465.0" text-anchor="middle">Text-to-speech</text>
+<text class="t-sub" x="310.0" y="481.0" text-anchor="middle">text_to_speech.py</text>
+<rect class="box" x="450" y="268" width="140" height="64" rx="10"/>
+<text class="t-title" x="520.0" y="297.0" text-anchor="middle">Conversation</text>
+<text class="t-sub" x="520.0" y="313.0" text-anchor="middle">conversation.py</text>
+<rect class="box" x="660" y="100" width="140" height="64" rx="10"/>
+<text class="t-title" x="730.0" y="129.0" text-anchor="middle">Intent classifier</text>
+<text class="t-sub" x="730.0" y="145.0" text-anchor="middle">intent_classifier.py</text>
+<rect class="box" x="660" y="268" width="140" height="64" rx="10"/>
+<text class="t-title" x="730.0" y="297.0" text-anchor="middle">Intent handlers</text>
+<text class="t-sub" x="730.0" y="313.0" text-anchor="middle">handlers.py</text>
+<rect class="box" x="870" y="268" width="140" height="64" rx="10"/>
+<text class="t-title" x="940.0" y="297.0" text-anchor="middle">Response writer</text>
+<text class="t-sub" x="940.0" y="313.0" text-anchor="middle">response_generator.py</text>
+<rect class="box" x="660" y="436" width="140" height="64" rx="10"/>
+<text class="t-title" x="730.0" y="465.0" text-anchor="middle">Domain services</text>
+<text class="t-sub" x="730.0" y="481.0" text-anchor="middle">services/</text>
+<rect class="box" x="450" y="436" width="130" height="64" rx="10"/>
+<text class="t-title" x="515.0" y="465.0" text-anchor="middle">JSON store</text>
+<text class="t-sub" x="515.0" y="481.0" text-anchor="middle">data/*.json</text>
+<rect class="box" x="660" y="572" width="140" height="64" rx="10"/>
+<text class="t-title" x="730.0" y="601.0" text-anchor="middle">Reminder scheduler</text>
+<text class="t-sub" x="730.0" y="617.0" text-anchor="middle">APScheduler</text>
+<path class="edge-p" d="M146,288 L240,288" fill="none" marker-end="url(#ap)"/>
+<circle class="badge" cx="157" cy="276" r="7.5"/><text class="t-badge" x="157" y="279.5" text-anchor="middle">1</text>
+<text class="t-lbl" x="168" y="280" text-anchor="start">text · clip</text>
+<path class="edge-p" d="M240,316 L146,316" fill="none" marker-end="url(#ap)"/>
+<circle class="badge" cx="157" cy="327" r="7.5"/><text class="t-badge" x="157" y="330.5" text-anchor="middle">8</text>
+<text class="t-lbl" x="168" y="331" text-anchor="start">reply · audio</text>
+<path class="edge-p" d="M310,268 L310,164" fill="none" marker-end="url(#ap)"/>
+<circle class="badge" cx="325" cy="218" r="7.5"/><text class="t-badge" x="325" y="221.5" text-anchor="middle">2</text>
+<text class="t-lbl" x="336" y="222" text-anchor="start">clip → text</text>
+<path class="edge-x" d="M240,132 L146,132" fill="none" marker-end="url(#ax)"/>
+<text class="t-lbl" x="168" y="124" text-anchor="start">audio</text>
+<path class="edge-p" d="M310,332 L310,436" fill="none" marker-end="url(#ap)"/>
+<circle class="badge" cx="325" cy="384" r="7.5"/><text class="t-badge" x="325" y="387.5" text-anchor="middle">7</text>
+<text class="t-lbl" x="336" y="388" text-anchor="start">reply text</text>
+<path class="edge-x" d="M240,468 L146,468" fill="none" marker-end="url(#ax)"/>
+<text class="t-lbl" x="168" y="460" text-anchor="start">speech</text>
+<path class="edge-p" d="M380,300 L450,300" fill="none" marker-end="url(#ap)"/>
+<circle class="badge" cx="390" cy="288" r="7.5"/><text class="t-badge" x="390" y="291.5" text-anchor="middle">3</text>
+<text class="t-lbl" x="401" y="292" text-anchor="start">respond</text>
+<path class="edge-p" d="M520,268 L520,132 L660,132" fill="none" marker-end="url(#ap)"/>
+<circle class="badge" cx="537" cy="120" r="7.5"/><text class="t-badge" x="537" y="123.5" text-anchor="middle">4</text>
+<text class="t-lbl" x="548" y="124" text-anchor="start">classify</text>
+<path class="edge-x" d="M800,132 L1058,132" fill="none" marker-end="url(#ax)"/>
+<text class="t-lbl" x="850" y="124" text-anchor="start">intent JSON</text>
+<path class="edge-p" d="M590,300 L660,300" fill="none" marker-end="url(#ap)"/>
+<circle class="badge" cx="600" cy="288" r="7.5"/><text class="t-badge" x="600" y="291.5" text-anchor="middle">5</text>
+<text class="t-lbl" x="611" y="292" text-anchor="start">dispatch</text>
+<path class="edge-p" d="M800,300 L870,300" fill="none" marker-end="url(#ap)"/>
+<circle class="badge" cx="810" cy="288" r="7.5"/><text class="t-badge" x="810" y="291.5" text-anchor="middle">6</text>
+<text class="t-lbl" x="821" y="292" text-anchor="start">prompt</text>
+<path class="edge-x" d="M1010,300 L1058,300" fill="none" marker-end="url(#ax)"/>
+<text class="t-lbl" x="1012" y="292" text-anchor="start">text</text>
+<path class="edge-p" d="M730,332 L730,436" fill="none" marker-end="url(#ap)"/>
+<circle class="badge" cx="745" cy="384" r="7.5"/><text class="t-badge" x="745" y="387.5" text-anchor="middle">6</text>
+<text class="t-lbl" x="756" y="388" text-anchor="start">domain call</text>
+<path class="edge-s" d="M660,468 L600,468" fill="none" marker-end="url(#as)"/>
+<text class="t-lbl" x="604" y="460" text-anchor="start">read/write</text>
+<path class="edge-x" d="M800,468 L1058,468" fill="none" marker-end="url(#ax)"/>
+<text class="t-lbl" x="840" y="460" text-anchor="start">weather · news · football</text>
+<path class="edge-s" d="M730,572 L730,500" fill="none" marker-end="url(#as)"/>
+<text class="t-lbl" x="738" y="540" text-anchor="start">every 20 s</text>
+</svg>
+</div>
+<figcaption>One request: the browser posts text or a mic clip (1), the turn pipeline gets a transcript from Groq if it was voice (2), the conversation engine asks Claude to classify it (3–4), one handler runs (5) against local JSON files, public data APIs or Claude's answer writer (6), and the reply text is spoken (7) and returned to the browser (8). Dashed amber = data leaves the machine.</figcaption>
+</figure>
+
+<div class="cards">
+<section class="card"><h2>Primary path, step by step</h2>
+<ol>
+<li><b>Browser → <code>app.py</code></b>: typed text, or a recorded clip uploaded by the mic/VAD script in <code>theme.py</code>.</li>
+<li><b>Transcribe</b> (<code>speech_to_text.py</code>): Groq Whisper; language forced by the EN / ने switch when set.</li>
+<li><b><code>respond()</code></b> in <code>conversation.py</code> keeps the follow-up state (pending question, last city, last 40 messages).</li>
+<li><b>Classify</b> (<code>intent_classifier.py</code>): Claude returns a JSON intent; Pydantic validates it, bad fields become <code>None</code>.</li>
+<li><b>Dispatch</b>: <code>HANDLERS[intent]</code> in <code>handlers.py</code>.</li>
+<li><b>Handler</b> calls domain services, or the response writer which asks Claude for wording.</li>
+<li><b>Speak</b> (<code>text_to_speech.py</code>): text shows first, audio follows; a TTS failure never hides the reply.</li>
+<li><b>Back to the browser</b> as chat text plus an audio file.</li>
+</ol></section>
+
+<section class="card"><h2>Trust boundaries</h2>
+<ul>
+<li><span class="tag t1">T1</span> <b>Browser ↔ local server.</b> Bound to <code>127.0.0.1</code>; set <code>APP_AUTH=user:pass</code> before exposing it. No other auth exists.</li>
+<li><span class="tag t2">T2</span> <b>Machine ↔ internet.</b> Every third-party call is HTTPS with a key from <code>.env</code>. Whatever is in a prompt or audio clip leaves the machine here.</li>
+<li><span class="tag t3">T3</span> <b>Process ↔ disk.</b> <code>data/*.json</code> is plain, unencrypted, gitignored. Personal facts are searched locally and only the few relevant ones go into a prompt.</li>
+</ul></section>
+
+<section class="card"><h2>External dependencies</h2>
+<table>
+<tr><th>Service</th><th>Used for</th><th>Key</th></tr>
+<tr><td>Anthropic Claude</td><td>intent JSON, replies, summaries</td><td><code>ANTHROPIC_API_KEY</code></td></tr>
+<tr><td>Groq Whisper</td><td>speech-to-text</td><td><code>GROQ_API_KEY</code></td></tr>
+<tr><td>Groq Orpheus</td><td>English voice</td><td>same Groq key</td></tr>
+<tr><td>Edge TTS</td><td>Nepali voice, backup</td><td>none</td></tr>
+<tr><td>Gemini TTS</td><td>optional backup voice</td><td><code>GEMINI_API_KEY</code></td></tr>
+<tr><td>Open-Meteo</td><td>weather, geocoding</td><td>none</td></tr>
+<tr><td>NewsAPI</td><td>football + Nepal news</td><td><code>NEWS_API_KEY</code></td></tr>
+<tr><td>Football-Data.org</td><td>tables, results, fixtures</td><td><code>FOOTBALL_DATA_KEY</code></td></tr>
+</table>
+<p class="note">With no Anthropic key, chat falls back to Groq's LLM.</p></section>
+
+<section class="card"><h2>Intent handlers (21)</h2>
+<ul>
+<li><b>Chat:</b> greeting, general_ai, out_of_scope</li>
+<li><b>Reminders:</b> create, list, update, delete</li>
+<li><b>Tasks:</b> create, list, update, complete, delete</li>
+<li><b>Information:</b> weather, daily_briefing, nepal_news</li>
+<li><b>Football:</b> news, league_table, league_results, fixtures</li>
+<li><b>Memory:</b> save_personal_info, personal_query</li>
+</ul>
+<p class="note">A handler that is missing a field stores a <code>pending</code> question; the next message is merged into it.</p></section>
+
+<section class="card"><h2>Data at rest (T3)</h2>
+<ul>
+<li><code>conversations.json</code>, <code>reminders.json</code>, <code>tasks.json</code>, <code>settings.json</code>, <code>personal_context.json</code></li>
+<li>Read-modify-write goes through <code>JsonStore</code> with a file lock and Pydantic models, so the scheduler thread and a chat request cannot double-fire a reminder.</li>
+<li>Generated audio lives in <code>data/audio/</code> and is deleted after about 2 hours.</li>
+</ul></section>
+
+<section class="card"><h2>Background and side channels</h2>
+<ul>
+<li><b>Scheduler</b> (<code>APScheduler</code>): checks due reminders every 20 s and cleans audio every 30 min. Reminders only fire while the app is running; overdue ones are announced at start-up.</li>
+<li><b>UI timers</b>: the page polls for fired reminders every 15 s and refreshes the Tasks / Reminders / Weather / System cards every 30 s.</li>
+<li><b>Browser only</b>: wake-word listening, voice-activity detection and barge-in run in the page's JavaScript; nothing is sent until a clip is uploaded.</li>
+<li><b><code>notch-app/</code></b>: an optional Electron pill that reads the JSON files directly every 8 s. It never talks to the Python process.</li>
+</ul></section>
+
+<section class="card"><h2>How it fails</h2>
+<ul>
+<li>Missing key, quota or network errors become a friendly English or Nepali message, never a stack trace (<code>conversation.respond</code>).</li>
+<li>TTS tries the next engine in order; if all fail the text reply is still shown.</li>
+<li>The Claude error text includes the API status so a bad key, no credit or an unavailable model is visible in the chat.</li>
+</ul></section>
+
+<section class="card wide"><h2>Where to look in the code</h2>
+<p class="note" style="margin:0">Entry and UI: <code>app.py</code>, <code>theme.py</code> · Pipeline: <code>assistant/conversation.py</code>, <code>intent_classifier.py</code>, <code>handlers.py</code>, <code>response_generator.py</code>, <code>briefing.py</code> · Services: <code>services/llm.py</code>, <code>speech_to_text.py</code>, <code>text_to_speech.py</code>, <code>reminders.py</code>, <code>tasks.py</code>, <code>personal_context.py</code>, <code>weather.py</code>, <code>football.py</code>, <code>news.py</code>, <code>nepal_news.py</code> · Storage: <code>database/</code> · Background: <code>scheduler/reminder_scheduler.py</code> · Config: <code>config.py</code>, <code>.env</code></p></section>
+</div>
+</main>
+</body>
+</html>
