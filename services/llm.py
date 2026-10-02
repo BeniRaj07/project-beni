@@ -42,7 +42,9 @@ def _translate_anthropic_error(e: Exception) -> ServiceError:
         return ServiceError("Claude", "could not reach the language model (check your internet connection)")
     if isinstance(e, anthropic.AuthenticationError):
         return ServiceError("Claude", "the ANTHROPIC_API_KEY was rejected", status=401)
-    return ServiceError("Claude", "the language model returned an error")
+    detail = getattr(e, "message", "") or str(e)
+    status = getattr(e, "status_code", "")
+    return ServiceError("Claude", f"the language model returned an error ({status} {detail[:200]})".replace("( ", "("))
 
 
 def _anthropic_text(messages: list[dict[str, str]], max_tokens: int) -> str:
@@ -50,7 +52,7 @@ def _anthropic_text(messages: list[dict[str, str]], max_tokens: int) -> str:
     system = "\n\n".join(m["content"] for m in messages if m["role"] == "system")
     turns = [m for m in messages if m["role"] != "system"]
     try:
-        resp = get_anthropic_client().beta.messages.create(
+        resp = get_anthropic_client().messages.create(
             model=settings.anthropic_model,
             # Thinking is always on for Claude Opus 5.5 and its tokens count against max_tokens,
             # so leave headroom above the visible answer; low effort keeps replies fast.
@@ -58,14 +60,12 @@ def _anthropic_text(messages: list[dict[str, str]], max_tokens: int) -> str:
             system=system or "You are a helpful assistant.",
             messages=turns,
             output_config={"effort": "low"},
-            betas=["server-side-fallback-2026-07-01"],
-            extra_body={"fallbacks": "default"},  # re-run on another model if a safety classifier declines
         )
     except ServiceError:
         raise
     except Exception as e:  # noqa: BLE001 - translated into a user-safe error
         if type(e).__module__.startswith("anthropic"):
-            log.warning("anthropic_error", extra={"error": type(e).__name__})
+            log.warning("anthropic_error: %s: %s", type(e).__name__, e)
             raise _translate_anthropic_error(e) from e
         raise
     if resp.stop_reason == "refusal":
